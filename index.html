@@ -1,0 +1,1593 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>社区共绘画布 - 完整互动闭环版</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js"></script>
+
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        /* ── 引入字体 ── */
+        @font-face {
+            font-family: 'FusionPixel';
+            src: url('./fusion-pixel-8px-monospaced-zh_hans.ttf') format('truetype');
+            font-weight: normal;
+            font-style: normal;
+        }
+        @font-face {
+            font-family: 'ZhengGeDianHei';
+            src: url('./ZhengGeDianHei-16.ttf') format('truetype');
+            font-weight: normal;
+            font-style: normal;
+        }
+
+        body, html {
+            width: 100%; height: 100%; background-color: #F7F4EA; 
+            font-family: "ChillRoundM", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+            overflow: hidden; 
+        }
+
+        /* ==========================================
+           新增：开屏圆环中心文字 (下方 1/4 处，带位移渐入动效)
+           ========================================== */
+        #ring-center-text {
+            position: absolute;
+            top: 75%; /* 控制在下半部分 1/4 处 */
+            left: 50%;
+            /* 初始状态：向下偏移 30px，且透明度为 0 */
+            transform: translate(-50%, calc(-50% + 30px));
+            text-align: center;
+            color: #5E6F52;
+            font-family: 'FusionPixel', sans-serif;
+            z-index: 1000;
+            pointer-events: none; /* 穿透点击，不影响底下互动 */
+            opacity: 0; 
+            /* 动效：透明度和位移同时平滑过渡，呈现稳稳浮现的感觉 */
+            transition: opacity 1.8s cubic-bezier(0.25, 1, 0.5, 1), transform 1.8s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+        #ring-center-text.visible {
+            opacity: 1;
+            /* 稳定状态：回到原位完全居中 */
+            transform: translate(-50%, -50%);
+        }
+        .ring-seed-title {
+            font-size: 32px;
+            margin-bottom: 15px;
+            letter-spacing: 2px;
+        }
+        .ring-seed-desc {
+            font-size: 22px;
+            line-height: 1.8;
+            letter-spacing: 1px;
+        }
+
+        /* ==========================================
+           1. 新增首层：3D 立体拼豆 Welcome 屏 
+           ========================================== */
+        #beads-welcome-screen {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background-color: #FAFAFA; z-index: 10010;
+            display: flex; justify-content: center; align-items: center;
+            cursor: pointer; transition: opacity 0.8s ease-out;
+        }
+        
+        .beads-welcome-text {
+            font-family: 'FusionPixel', sans-serif;
+            font-size: clamp(3rem, 8vw, 6rem);
+            color: #1a1a1a; z-index: 10; display: flex; gap: 15px; user-select: none;
+        }
+        .beads-welcome-text span { transform: translateY(0) scale(1) rotate(0deg); transition: transform 0.15s App; }
+        .beads-welcome-text span:nth-child(1) { transform: translateY(-5px) scale(0.9); }
+        .beads-welcome-text span:nth-child(2) { transform: translateY(12px) scale(1.15) rotate(5deg); color: #2a2a2a;}
+        .beads-welcome-text span:nth-child(3) { transform: translateY(-8px) scale(0.9); }
+        .beads-welcome-text span:nth-child(4) { transform: translateY(8px) scale(1.1) rotate(-5deg); }
+        .beads-welcome-text span:nth-child(5) { transform: translateY(-10px) scale(0.9) rotate(5deg); color: #3a3a3a; }
+        .beads-welcome-text span:nth-child(6) { transform: translateY(-20px) scale(1.3) rotate(8deg); color: #4a4a4a;}
+        .beads-welcome-text span:nth-child(7) { transform: translateY(6px) scale(0.9) rotate(-3deg); }
+        .beads-welcome-text span:nth-child(8) { transform: translateY(0) scale(1.1) rotate(0deg); color: #5a5a5a; }
+
+        #beads-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; z-index: 1; }
+        
+        .bead-item {
+            position: absolute; top: -20px; width: 12px; height: 12px;
+            transform-style: preserve-3d; animation: beadFall linear forwards; position: relative;
+        }
+        .bead-item::before {
+            content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 8px;
+            background-color: var(--bead-color-side); border-radius: 50% / 4px; transform: translateY(2px);
+        }
+        .bead-item::after {
+            content: ''; position: absolute; top: -2px; left: 0; width: 100%; height: 100%;
+            background-color: var(--bead-color-top); border-radius: 50%;
+        }
+        @keyframes beadFall {
+            0% { transform: translateY(-5vh) rotateX(0deg) rotateY(0deg) rotateZ(0deg); opacity: 1; }
+            100% { transform: translateY(110vh) rotateX(360deg) rotateY(720deg) rotateZ(360deg); opacity: 0; }
+        }
+
+        /* ==========================================
+           2. 第二层：原有 Loading 过渡屏
+           ========================================== */
+        #loading-screen {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background-color: #F7F4EA; z-index: 10005; 
+            display: flex; justify-content: center; align-items: center;
+            cursor: pointer; transition: opacity 0.8s ease;
+        }
+        .loading-text {
+            font-family: 'FusionPixel', sans-serif; font-size: 14px; color: #5E6F52;
+            letter-spacing: 4px; animation: pulse 2s infinite ease-in-out; user-select: none;
+        }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        /* ==========================================
+           3. 第三层：开屏 3D 照片墙层
+           ========================================== */
+        #intro-overlay {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: #F7F4EA; z-index: 9999;
+            transition: opacity 1s cubic-bezier(0.65, 0, 0.35, 1); 
+        }
+        .scene { position: relative; width: 100vw; height: 100vh; perspective: 1200px; display: flex; justify-content: center; align-items: center; overflow: hidden; }
+        .zoom-wrapper { transform-style: preserve-3d; transform: translateY(0px) rotateX(0deg) scale(1); transition: transform 2.2s cubic-bezier(0.65, 0, 0.35, 1); }
+        .ring { position: relative; transform-style: preserve-3d; }
+        .img-item {
+            position: absolute; width: 200px; height: 280px; left: -100px; top: -140px; object-fit: cover;
+            border-radius: 8px; box-shadow: 0 8px 24px rgba(94,111,82,.15); opacity: 0;
+            transform: translateY(-120vh) scale(1.2); transition: transform 1.2s cubic-bezier(0.64, 0.04, 0.35, 1), opacity 0.6s ease; pointer-events: none; 
+        }
+        .img-item:hover { filter: brightness(1.1); }
+        
+        .enter-btn {
+            position: absolute; bottom: 6%; right: 6%; padding: 12px 30px; background: #E6F0DA; border: 1.5px solid #C9D8B6; border-radius: 25px;
+            color: #5E6F52; font-size: 18px; font-weight: 500; font-family: inherit; cursor: pointer; z-index: 10000; 
+            opacity: 0; pointer-events: none; transition: all 0.4s ease; box-shadow: 0 4px 12px rgba(94,111,82,.1);
+        }
+        .enter-btn:hover { background: #DCE9CC; transform: translateY(-2px); }
+        .spin-arc { animation: spinArc 15s linear infinite; }
+        @keyframes spinArc { 0% { transform: rotateZ(0deg); } 100% { transform: rotateZ(-360deg); } }
+
+        /* ==========================================
+           4. 画廊图文卡片弹窗
+           ========================================== */
+        #lightbox {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(247, 244, 234, 0.85); z-index: 10001; 
+            display: flex; flex-direction: column; justify-content: center; align-items: center; opacity: 0; pointer-events: none; transition: opacity 0.4s ease;
+        }
+        #lightbox.active { opacity: 1; pointer-events: auto; }
+        .lightbox-panel {
+            display: flex; flex-direction: row; background: #FBF8F1; border: 1.5px solid #D8E3C8; border-radius: 16px; padding: 30px; gap: 40px; 
+            box-shadow: 0 15px 40px rgba(94,111,82,.15); max-width: 800px; width: 80vw;
+            transform: scale(0.95); transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); cursor: default;
+        }
+        #lightbox.active .lightbox-panel { transform: scale(1); }
+        .lightbox-img-wrapper { flex: 0 0 50%; display: flex; align-items: center; justify-content: center; }
+        .lightbox-img-wrapper img { width: 100%; max-height: 60vh; object-fit: contain; border-radius: 8px; box-shadow: 0 8px 24px rgba(94,111,82,.1); }
+        
+        .lightbox-text-wrapper { 
+            flex: 1; display: flex; flex-direction: column; justify-content: center; 
+            font-family: 'ZhengGeDianHei', sans-serif; 
+            font-size: 13px; color: #5E6F52; line-height: 2; letter-spacing: 0.05em; white-space: pre-wrap; overflow-y: auto; max-height: 60vh; padding-right: 10px; 
+        }
+        .lightbox-text-wrapper::-webkit-scrollbar { width: 4px; }
+        .lightbox-text-wrapper::-webkit-scrollbar-thumb { background: #D8E3C8; border-radius: 4px; }
+        .close-tip { margin-top: 24px; color: #9AAA8D; font-size: 14px; letter-spacing: 2px; cursor: pointer; }
+        .close-tip:hover { color: #5E6F52; }
+
+        /* ==========================================
+           5. 主网页容器入场动画与原网页 CSS
+           ========================================== */
+        #main-content {
+            display: none; flex-direction: column; align-items: center; width: 100%; min-height: 100vh; padding: 0 24px 20px; gap: 0;
+            opacity: 0; transform: translateY(40px) scale(0.98); transition: opacity 1.5s ease, transform 1.5s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+        #main-content.visible { opacity: 1; transform: translateY(0) scale(1); }
+
+        #site-header { width: 100%; max-width: 1480px; height: 100px; display: flex; align-items: flex-end; justify-content: space-between; padding: 0 16px 20px 16px; flex-shrink: 0; }
+        #header-titles { display: flex; flex-direction: column; gap: 12px; margin-bottom: 6px; }
+        #site-header .subtitle { font-size: 22px; font-weight: 400; color: #7E8F73; letter-spacing: 0.01em; }
+        #btn-mechanism { flex-shrink: 0; width: 148px; height: 52px; border: 1.5px solid #C9D8B6; border-radius: 22px; background: #E6F0DA; color: #5E6F52; font-family: inherit; font-size: 20px; font-weight: 500; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: background .18s; user-select: none; }
+        #btn-mechanism:hover { background: #DCE9CC; }
+        #btn-mechanism .icon { width: 18px; height: 18px; opacity: 0.75; }
+
+        #layout { display: flex; gap: 16px; align-items: flex-start; margin-top: 12px; }
+        #canvas { display: block; border: 2px solid #e8d8b0; border-radius: 12px; box-shadow: 0 6px 28px rgba(160,120,40,.13), 0 2px 8px rgba(0,0,0,.07); background: #fff5e6; transition: border-color .2s, box-shadow .2s; }
+        #canvas.placing { border-color: #f0a040; box-shadow: 0 6px 28px rgba(160,120,40,.13), 0 0 0 3px rgba(240,160,64,.28); cursor: default !important; }
+
+        #panel { width: 376px; flex-shrink: 0; display: flex; flex-direction: column; background: #F4F7EE; border: 1.5px solid #D8E3C8; border-radius: 30px; padding: 24px; box-shadow: 0 2px 12px rgba(94,111,82,.07); box-sizing: border-box; }
+        #panel-title { font-size: 28px; font-weight: 600; color: #5E6F52; letter-spacing: 0.01em; margin-bottom: 16px; line-height: 1.2; flex-shrink: 0; }
+        #panel-tabs { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; flex-shrink: 0; }
+        .panel-tab { height: 36px; padding: 0 16px; border: 1px solid #D8E3C8; border-radius: 18px; background: #EEF3E6; color: #6E7F63; font-size: 16px; font-weight: 500; cursor: pointer; display: flex; align-items: center; font-family: inherit; transition: background .15s, color .15s, border-color .15s; user-select: none; white-space: nowrap; }
+        .panel-tab:hover { background: #E0EBD2; }
+        .panel-tab.active { background: #A9BE8D; border-color: #A9BE8D; color: #fff; }
+
+        #stamp-grid-wrap { height: 340px; overflow-y: auto; overflow-x: hidden; margin-bottom: 18px; flex-shrink: 0; }
+        #stamp-grid-wrap::-webkit-scrollbar { width: 4px; }
+        #stamp-grid-wrap::-webkit-scrollbar-thumb { background: #C8D8B8; border-radius: 2px; }
+        #stamp-grid-wrap::-webkit-scrollbar-track { background: transparent; }
+        #stamp-grid { display: grid; grid-template-columns: repeat(2, 150px); gap: 16px; justify-content: center; }
+        .stamp-btn { width: 150px; height: 150px; border: 1.5px solid #D8E3C8; border-radius: 16px; background: #FBF8F1; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; font-size: 14px; color: #5E6F52; font-weight: 500; font-family: inherit; transition: border-color .18s, box-shadow .18s; user-select: none; padding: 12px 8px 10px; box-sizing: border-box; overflow: hidden; }
+        .stamp-btn:hover { border-color: #A9BE8D; box-shadow: 0 2px 6px rgba(94,111,82,.10); }
+        .stamp-btn.placing { border-color: #A9BE8D; background: #EEF4E6; box-shadow: 0 0 0 2px rgba(143,165,111,.22); }
+        .stamp-btn canvas { pointer-events: none; flex-shrink: 0; display: block; }
+
+        #btn-cancel-place { display: none; width: 100%; padding: 9px 0; border: 1px solid #C9D8B6; border-radius: 50px; background: #EEF3E6; cursor: pointer; font-size: 14px; color: #6E7F63; font-weight: 500; font-family: inherit; text-align: center; transition: background .15s; user-select: none; margin-bottom: 12px; flex-shrink: 0; }
+        #btn-cancel-place:hover { background: #E0EBD2; }
+        #btn-stamp-today { width: 100%; height: 60px; border: none; border-radius: 30px; background: #9FB786; color: #fff; font-size: 26px; font-weight: 500; font-family: inherit; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: background .18s; user-select: none; flex-shrink: 0; }
+        #btn-stamp-today:hover { background: #8FA56F; }
+        #btn-stamp-today:disabled { background: #C8D8B8; cursor: not-allowed; opacity: .6; }
+
+        #controls { display: flex; gap: 8px; flex-wrap: nowrap; justify-content: center; margin-top: 10px; }
+        .ctrl-btn { height: 32px; padding: 0 14px; border: 1px solid #D8E3C8; border-radius: 16px; background: #F3EBDD; cursor: pointer; font-size: 14px; color: #7E8F73; font-weight: 400; font-family: inherit; transition: background .15s, border-color .15s; user-select: none; white-space: nowrap; }
+        .ctrl-btn:hover { background: #EAE0D2; border-color: #C4D4B0; }
+        .ctrl-btn:active { background: #DDD4C4; }
+        .ctrl-btn:disabled { opacity: .35; cursor: not-allowed; pointer-events: none; }
+        .ctrl-btn.danger { background: #F3EBDD; color: #9A7A6A; border-color: #D8C8BC; }
+        .ctrl-btn.danger:hover { background: #EAE0D2; }
+
+        #hint { display: none; }
+
+        #bottom-modules { display: flex; gap: 20px; justify-content: center; align-items: flex-start; margin-top: 12px; width: 100%; max-width: 1280px; padding: 0 16px; box-sizing: border-box; }
+        .bmod { width: 300px; min-height: 198px; background: #FBF8F1; border: 1px solid #D8E3C8; border-radius: 24px; padding: 22px 22px 20px; box-sizing: border-box; display: flex; flex-direction: column; flex-shrink: 0; }
+        .bmod-header { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+        .bmod-icon { width: 16px; height: 16px; flex-shrink: 0; opacity: .7; }
+        .bmod-title { font-size: 20px; font-weight: 600; color: #5E6F52; line-height: 1.2; font-family: inherit; }
+
+        #mod-progress .progress-main { display: flex; align-items: baseline; gap: 6px; margin-bottom: 10px; }
+        #mod-progress .prog-num { font-size: 60px; font-weight: 700; color: #5E6F52; line-height: 1; letter-spacing: -1px; font-family: inherit; }
+        #mod-progress .prog-total { font-size: 26px; font-weight: 400; color: #9AAA8D; line-height: 1; font-family: inherit; }
+        #mod-progress .prog-notes { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; }
+        #mod-progress .prog-note { font-size: 16px; color: #7E8F73; line-height: 1.5; font-family: inherit; }
+        #mod-progress .prog-bar-wrap { margin-top: auto; }
+        #mod-progress .prog-bar-bg { width: 210px; height: 8px; background: #DCE8CC; border-radius: 4px; overflow: hidden; }
+        #mod-progress .prog-bar-fill { height: 100%; width: 60%; background: #A9BE8D; border-radius: 4px; }
+
+        #mod-records .record-list { display: flex; flex-direction: column; gap: 0; }
+        #mod-records .record-item { display: flex; align-items: center; gap: 10px; height: 38px; border-bottom: 1px solid #EEF3E6; }
+        #mod-records .record-item:last-child { border-bottom: none; }
+        #mod-records .record-avatar { width: 24px; height: 24px; border-radius: 50%; background: #DCE8CC; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #7E8F73; font-family: inherit; }
+        #mod-records .record-text { flex: 1; font-size: 16px; color: #5E6F52; line-height: 1; font-family: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #mod-records .record-text em { font-style: normal; color: #9AAA8D; font-size: 14px; }
+        #mod-records .record-stamp-icon { width: 18px; height: 18px; flex-shrink: 0; opacity: .55; }
+        .record-item.new-entry { animation: fadeSlideIn .3s ease; }
+        @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+
+        #mod-meaning { position: relative; overflow: hidden; }
+        #mod-meaning .meaning-body { font-size: 17px; color: #7E8F73; line-height: 1.7; font-family: inherit; flex: 1; }
+        #mod-meaning .meaning-deco { position: absolute; right: 18px; bottom: 16px; width: 90px; height: 70px; opacity: .18; pointer-events: none; }
+
+        #mod-nickname .nick-desc { font-size: 16px; color: #7E8F73; line-height: 1.5; margin-bottom: 16px; font-family: inherit; }
+        #mod-nickname .nick-input { width: 220px; height: 46px; border: 1px solid #D8E3C8; border-radius: 23px; background: #fff; padding: 0 18px; font-size: 17px; color: #5E6F52; outline: none; font-family: inherit; box-sizing: border-box; transition: border-color .15s; display: block; margin-bottom: 12px; }
+        #mod-nickname .nick-input::placeholder { color: #B8C9A8; }
+        #mod-nickname .nick-input:focus { border-color: #A9BE8D; }
+        #mod-nickname .nick-btn { width: 220px; height: 46px; border: 1px solid #C9D8B6; border-radius: 23px; background: #E6F0DA; color: #5E6F52; font-size: 18px; font-weight: 500; cursor: pointer; font-family: inherit; transition: background .15s; display: block; }
+        #mod-nickname .nick-btn:hover { background: #D8EAC8; }
+        #mod-nickname.confirmed .nick-input { background: #F4F7EE; color: #7E8F73; border-color: #C9D8B6; }
+        #mod-nickname.confirmed .nick-btn { background: #EEF3E6; color: #9AAA8D; border-color: #D8E3C8; cursor: default; }
+        #mod-nickname .nick-confirmed-tip { display: none; font-size: 13px; color: #9AAA8D; margin-top: 6px; font-family: inherit; }
+        #mod-nickname.confirmed .nick-confirmed-tip { display: block; }
+
+        #growth-bar { width: 100%; max-width: 1040px; margin: 8px auto 0; display: flex; align-items: center; gap: 12px; padding: 0 16px; height: 80px; flex-shrink: 0; }
+        #day-label { flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 72px; }
+        #day-label .day-num { font-size: 24px; font-weight: 600; color: #5E6F52; line-height: 1.1; }
+        #day-label .day-total { font-size: 13px; color: #7E8F73; font-weight: 400; }
+        #timeline-scroll { flex: 1; overflow: visible; position: relative; }
+        #timeline-track { display: flex; align-items: center; position: relative; gap: 0; }
+        #timeline-track::before { content: ''; position: absolute; top: 50%; left: 14px; right: 14px; height: 1.5px; background: #D8E3C8; transform: translateY(-50%); z-index: 0; }
+        .tl-node { flex-shrink: 0; width: 30px; display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; position: relative; z-index: 1; user-select: none; }
+        .tl-icon { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: #F7F4EA; transition: transform .15s; }
+        .tl-node:hover .tl-icon { transform: scale(1.15); }
+        .tl-node.done .tl-icon { background: #EEF4E6; }
+        .tl-node.future .tl-icon { opacity: 0.45; filter: grayscale(0.5); }
+        .tl-node.current .tl-icon { width: 36px; height: 36px; background: #E6F0DA; border: 2px solid #8FA56F; box-shadow: 0 0 0 3px rgba(143,165,111,.15); }
+        .tl-num { font-size: 11px; color: #A0B090; line-height: 1; font-weight: 400; }
+        .tl-node.done .tl-num { color: #7C9363; }
+        .tl-node.current .tl-num { color: #5E6F52; font-weight: 600; font-size: 12px; }
+        .tl-node.future .tl-num { color: #C8D4BC; }
+        .tl-phase-label { position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #8FA56F; white-space: nowrap; font-weight: 500; }
+        .tl-node.future .tl-phase-label { color: #C8D4BC; }
+
+        /* ==========================================
+           【恢复的书签功能】相关样式
+           ========================================== */
+        #save-modal {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(247, 244, 234, 0.9); z-index: 10002;
+            display: flex; justify-content: center; align-items: center;
+            opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+        }
+        #save-modal.active { opacity: 1; pointer-events: auto; }
+        .save-panel {
+            background: #FBF8F1; border: 1.5px solid #D8E3C8; border-radius: 20px;
+            padding: 40px 40px 30px; box-shadow: 0 15px 40px rgba(94,111,82,.15);
+            display: flex; gap: 40px; align-items: center; max-width: 900px; width: 85vw;
+            position: relative; transform: scale(0.95); transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        #save-modal.active .save-panel { transform: scale(1); }
+        .close-save {
+            position: absolute; top: 16px; right: 20px;
+            background: #EEF3E6; border: 1px solid #C9D8B6; border-radius: 20px;
+            padding: 8px 16px; font-size: 14px; color: #6E7F63; font-weight: 500;
+            cursor: pointer; transition: all 0.2s; font-family: inherit;
+        }
+        .close-save:hover { background: #DCE8CC; color: #5E6F52; }
+        
+        .save-left-area {
+            flex: 1; display: flex; flex-direction: column; align-items: center; gap: 15px; width: 100%;
+        }
+        .save-tabs {
+            display: flex; gap: 10px; background: #EEF3E6; padding: 4px; border-radius: 20px; border: 1px solid #C9D8B6; margin-bottom: 5px;
+        }
+        .save-tab {
+            padding: 8px 24px; border: none; border-radius: 16px; background: transparent; color: #6E7F63; font-size: 15px; font-weight: 500; cursor: pointer; font-family: inherit; transition: all 0.2s;
+        }
+        .save-tab.active {
+            background: #A9BE8D; color: #fff; box-shadow: 0 2px 8px rgba(169,190,141,0.4);
+        }
+        #month-selector-wrap {
+            text-align: center; width: 100%; margin-bottom: 5px;
+        }
+        #month-selector-wrap p {
+            font-size: 13px; color: #7E8F73; margin-bottom: 8px;
+        }
+        #month-grid {
+            display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; max-width: 320px; margin: 0 auto;
+        }
+        .month-btn {
+            width: 36px; height: 36px; border: 1px solid #C9D8B6; border-radius: 8px; background: #FBF8F1; color: #5E6F52; font-size: 15px; font-weight: 500; cursor: pointer; transition: all 0.2s; font-family: inherit;
+        }
+        .month-btn:hover { background: #E6F0DA; }
+        .month-btn.active { background: #9FB786; border-color: #9FB786; color: #fff; }
+
+        .save-preview-wrap { flex: 1; display: flex; justify-content: center; align-items: center;}
+        
+        /* 针对克隆 Canvas 和 书签预览的样式，确保等比缩放 */
+        .save-preview-wrap canvas,
+        .save-preview-wrap img {
+            max-width: 100%; max-height: 50vh; width: auto; height: auto; object-fit: contain;
+            border-radius: 12px; border: 2px solid #E6F0DA; box-shadow: 0 8px 24px rgba(94,111,82,.1);
+            background: #fff5e6; 
+        }
+        
+        .save-qr-wrap { width: 220px; display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center; flex-shrink: 0; }
+        .save-qr-wrap h3 { color: #5E6F52; font-size: 22px; font-weight: 600; margin: 0; }
+        .save-qr-wrap .qr-border { padding: 10px; background: #fff; border: 1.5px solid #D8E3C8; border-radius: 12px; }
+        .save-qr-wrap img { width: 140px; height: 140px; display: block; }
+        .save-qr-wrap p { color: #7E8F73; font-size: 14px; line-height: 1.6; margin: 0;}
+        .save-qr-wrap .real-dl-btn { width: 100%; padding: 12px 0; background: #9FB786; color: #fff; border: none; border-radius: 25px; font-size: 16px; font-weight: 500; cursor: pointer; transition: background 0.2s; font-family: inherit; margin-top: 10px; }
+        .save-qr-wrap .real-dl-btn:hover { background: #8FA56F; }
+
+        /* 复制链接按钮的样式 */
+        .copy-url-btn {
+            width: 100%; padding: 12px 0; background: #E6F0DA; color: #5E6F52; border: 1px solid #C9D8B6; 
+            border-radius: 25px; font-size: 16px; font-weight: 500; cursor: pointer; 
+            transition: background 0.2s; font-family: inherit;
+        }
+        .copy-url-btn:hover { background: #D8EAC8; }
+
+        /* ==========================================
+           【核心新增】手机端扫码分享模式专用样式
+           ========================================== */
+        @media screen and (max-width: 768px) {
+            body.mobile-share-mode {
+                overflow-x: hidden !important;
+                overflow-y: auto !important;
+                background-color: #F7F4EA; 
+            }
+            
+            body.mobile-share-mode #main-content {
+                padding: 10px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: flex-start;
+                min-height: 100dvh;
+            }
+
+            /* 隐藏右侧控制栏和底部多余模块 */
+            body.mobile-share-mode #panel,
+            body.mobile-share-mode #bottom-modules,
+            body.mobile-share-mode #controls button:not(#btn-dl),
+            body.mobile-share-mode #hint,
+            body.mobile-share-mode #site-header button,
+            body.mobile-share-mode #growth-bar {
+                display: none !important;
+            }
+
+            /* 只留下居中的头部文案 */
+            body.mobile-share-mode #site-header {
+                height: auto;
+                padding: 10px 0 20px 0;
+                justify-content: center;
+                text-align: center;
+            }
+            
+            body.mobile-share-mode #layout {
+                flex-direction: column;
+                align-items: center;
+                width: 100%;
+                margin-top: 0;
+            }
+
+            /* 手机端 Canvas 核心缩放逻辑，不改内部宽高 */
+            body.mobile-share-mode #canvas {
+                width: calc(100vw - 28px) !important;
+                height: auto !important;
+                max-width: calc(100vw - 24px);
+                max-height: calc(100dvh - 140px);
+                object-fit: contain;
+                margin: 0 auto;
+                pointer-events: none; /* 仅查看，不可交互 */
+            }
+
+            /* 手机端打开书签时，同样比例全屏展示 */
+            body.mobile-share-mode #mobile-bookmark-preview {
+                width: calc(100vw - 28px) !important;
+                height: auto !important;
+                max-width: calc(100vw - 24px);
+                max-height: calc(100dvh - 140px);
+                object-fit: contain;
+                margin: 0 auto;
+                border-radius: 12px;
+                box-shadow: 0 6px 28px rgba(160,120,40,.13);
+                display: none;
+                pointer-events: auto; /* 支持长按保存 */
+            }
+
+            /* 手机端保存按钮放大并居中 */
+            body.mobile-share-mode #controls {
+                width: 100%;
+                margin-top: 24px;
+                justify-content: center;
+            }
+            body.mobile-share-mode #btn-dl {
+                width: calc(100vw - 40px);
+                height: 50px;
+                font-size: 18px;
+                background: #9FB786;
+                color: #fff;
+                border-radius: 25px;
+                border: none;
+            }
+
+            /* 手机端弹窗竖向适配 */
+            body.mobile-share-mode .save-panel {
+                flex-direction: column;
+                width: 94vw;
+                padding: 40px 20px 20px;
+                gap: 20px;
+            }
+            body.mobile-share-mode .save-preview-wrap canvas,
+            body.mobile-share-mode .save-preview-wrap img {
+                max-width: 88vw;
+                max-height: 40vh;
+            }
+            body.mobile-share-mode .save-qr-wrap {
+                width: 100%;
+            }
+            body.mobile-share-mode #save-qr-img, 
+            body.mobile-share-mode .qr-border {
+                display: none; /* 手机端本身就是分享页，不需要再展示二维码 */
+            }
+            body.mobile-share-mode .save-qr-wrap p {
+                margin-bottom: 10px;
+            }
+        }
+
+        /* ==========================================
+           【新增】共绘机制说明弹窗样式
+           ========================================== */
+        #mechanism-modal {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(247, 244, 234, 0.9); z-index: 10020; /* 层级高于主面，但不影响保存和照片墙 */
+            display: flex; justify-content: center; align-items: center;
+            opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+        }
+        #mechanism-modal.active { opacity: 1; pointer-events: auto; }
+        .mechanism-panel {
+            background: #FBF8F1; border: 1.5px solid #D8E3C8; border-radius: 20px;
+            padding: 40px 30px; box-shadow: 0 15px 40px rgba(94,111,82,.15);
+            width: 85vw; max-width: 500px;
+            position: relative; transform: scale(0.95); transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            display: flex; flex-direction: column; align-items: center; text-align: center;
+        }
+        #mechanism-modal.active .mechanism-panel { transform: scale(1); }
+        .close-mechanism {
+            position: absolute; top: 16px; right: 20px;
+            background: transparent; border: none; font-size: 24px; color: #9AAA8D;
+            cursor: pointer; transition: color 0.2s; font-family: 'ZhengGeDianHei', sans-serif;
+            width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+        }
+        .close-mechanism:hover { color: #5E6F52; }
+        .mechanism-panel h3 {
+            color: #5E6F52; font-size: 24px; font-weight: 600; margin-bottom: 20px; letter-spacing: 1px;
+        }
+        .mechanism-panel p {
+            color: #7E8F73; font-size: 16px; line-height: 1.8; margin-bottom: 12px; text-align: justify;
+        }
+        @media screen and (max-width: 768px) {
+            .mechanism-panel { padding: 30px 20px; }
+            .mechanism-panel h3 { font-size: 20px; margin-bottom: 15px; }
+            .mechanism-panel p { font-size: 14px; margin-bottom: 10px; }
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="beads-welcome-screen">
+        <div id="beads-container"></div>
+        <div class="beads-welcome-text">
+            <span>w</span><span>E</span><span>l</span><span>C</span><span>o</span><span>M</span><span>e</span><span>!</span>
+        </div>
+    </div>
+
+    <div id="loading-screen" style="display: none; opacity: 0;">
+        <div class="loading-text">点击屏幕任意处开始</div>
+    </div>
+
+    <div id="intro-overlay">
+        <div class="scene">
+            <div class="zoom-wrapper" id="zoom-wrapper">
+                <div class="ring" id="ring"></div>
+            </div>
+        </div>
+        
+        <div id="ring-center-text">
+            <div class="ring-seed-title">种子</div>
+            <div class="ring-seed-desc">让靠近成为开始，<br>也让陪伴有了落地的地方。</div>
+        </div>
+
+        <button class="enter-btn" id="enter-btn">进入画布 →</button>
+    </div>
+
+    <div id="lightbox">
+        <div class="lightbox-panel" id="lightbox-panel">
+            <div class="lightbox-img-wrapper"><img id="lightbox-img" src="" alt="Gallery Image"></div>
+            <div class="lightbox-text-wrapper" id="lightbox-text"></div>
+        </div>
+        <div class="close-tip">点击背景关闭</div>
+    </div>
+
+    <div id="main-content">
+        <header id="site-header">
+            <div id="header-titles">
+                <p class="subtitle">把每一次互助，慢慢积累成我们共同生活过的风景</p>
+            </div>
+            <button id="btn-mechanism">
+                <svg class="icon" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="9" cy="9" r="7.5" stroke="#5E6F52" stroke-width="1.4"/>
+                    <path d="M9 8v5" stroke="#5E6F52" stroke-width="1.4" stroke-linecap="round"/>
+                    <circle cx="9" cy="5.5" r="0.9" fill="#5E6F52"/>
+                </svg>
+                共绘机制
+            </button>
+        </header>
+
+        <div id="growth-bar">
+            <div id="day-label"><span class="day-num" id="day-num-display">第1天</span><span class="day-total">/ 30天</span></div>
+            <div id="timeline-scroll"><div id="timeline-track"></div></div>
+        </div>
+
+        <div id="layout">
+            <img id="mobile-bookmark-preview" src="" alt="书签分享预览" />
+            <canvas id="canvas" width="900" height="600"></canvas>
+            
+            <div id="panel">
+                <div id="panel-title">今日可用印章</div>
+                <div id="panel-tabs">
+                    <button class="panel-tab active" data-cat="all">全部</button>
+                    <button class="panel-tab" data-cat="nature">自然</button>
+                    <button class="panel-tab" data-cat="community">社区</button>
+                    <button class="panel-tab" data-cat="companion">陪伴</button>
+                </div>
+                <div id="stamp-grid-wrap">
+                    <div id="stamp-grid">
+                        <button class="stamp-btn" id="add-stone" data-cat="nature"><canvas width="72" height="72" id="pv-stone"></canvas>石头</button>
+                        <button class="stamp-btn" id="add-grass" data-cat="nature"><canvas width="72" height="72" id="pv-grass"></canvas>草地</button>
+                        <button class="stamp-btn" id="add-flower" data-cat="nature"><canvas width="72" height="72" id="pv-flower"></canvas>花朵</button>
+                        <button class="stamp-btn" id="add-branch" data-cat="nature"><canvas width="72" height="72" id="pv-branch"></canvas>树枝</button>
+                        <button class="stamp-btn" id="add-sun" data-cat="nature"><canvas width="72" height="72" id="pv-sun"></canvas>太阳</button>
+                        <button class="stamp-btn" id="add-sakura" data-cat="nature"><canvas width="72" height="72" id="pv-sakura"></canvas>樱花</button>
+                        <button class="stamp-btn" id="add-leaf" data-cat="nature"><canvas width="72" height="72" id="pv-leaf"></canvas>树叶</button>
+                        <button class="stamp-btn" id="add-trunk" data-cat="nature"><canvas width="72" height="72" id="pv-trunk"></canvas>枝干</button>
+                        <button class="stamp-btn" id="add-maple" data-cat="nature"><canvas width="72" height="72" id="pv-maple"></canvas>枫叶</button>
+                        <button class="stamp-btn" id="add-sunflower" data-cat="nature"><canvas width="72" height="72" id="pv-sunflower"></canvas>向日葵</button>
+                        <button class="stamp-btn" id="add-lilyofvalley" data-cat="companion"><canvas width="72" height="72" id="pv-lilyofvalley"></canvas>铃兰</button>
+                        <button class="stamp-btn" id="add-bird" data-cat="companion"><canvas width="72" height="72" id="pv-bird"></canvas>鸟</button>
+                        <button class="stamp-btn" id="add-cloud" data-cat="nature"><canvas width="72" height="72" id="pv-cloud"></canvas>云朵</button>
+                        <button class="stamp-btn" id="add-chair1" data-cat="community"><canvas width="72" height="72" id="pv-chair1"></canvas>椅子1</button>
+                        <button class="stamp-btn" id="add-chair2" data-cat="community"><canvas width="72" height="72" id="pv-chair2"></canvas>椅子2</button>
+                        <button class="stamp-btn" id="add-flower1" data-cat="nature"><canvas width="72" height="72" id="pv-flower1"></canvas>花朵1</button>
+                        <button class="stamp-btn" id="add-flower2" data-cat="nature"><canvas width="72" height="72" id="pv-flower2"></canvas>花朵2</button>
+                        <button class="stamp-btn" id="add-house1" data-cat="community"><canvas width="72" height="72" id="pv-house1"></canvas>房子1</button>
+                        <button class="stamp-btn" id="add-house2" data-cat="community"><canvas width="72" height="72" id="pv-house2"></canvas>房子2</button>
+                        <button class="stamp-btn" id="add-house3" data-cat="community"><canvas width="72" height="72" id="pv-house3"></canvas>房子3</button>
+                        <button class="stamp-btn" id="add-light1" data-cat="community"><canvas width="72" height="72" id="pv-light1"></canvas>路灯1</button>
+                        <button class="stamp-btn" id="add-light2" data-cat="community"><canvas width="72" height="72" id="pv-light2"></canvas>路灯2</button>
+                        <button class="stamp-btn" id="add-rain1" data-cat="nature"><canvas width="72" height="72" id="pv-rain1"></canvas>水滴</button>
+                        <button class="stamp-btn" id="add-road1" data-cat="community"><canvas width="72" height="72" id="pv-road1"></canvas>小路1</button>
+                        <button class="stamp-btn" id="add-road2" data-cat="community"><canvas width="72" height="72" id="pv-road2"></canvas>小路2</button>
+                        <button class="stamp-btn" id="add-road3" data-cat="community"><canvas width="72" height="72" id="pv-road3"></canvas>小路3</button>
+                        <button class="stamp-btn" id="add-star1" data-cat="nature"><canvas width="72" height="72" id="pv-star1"></canvas>星星1</button>
+                        <button class="stamp-btn" id="add-star2" data-cat="nature"><canvas width="72" height="72" id="pv-star2"></canvas>星星2</button>
+                    </div>
+                </div>
+                <button id="btn-cancel-place">✕ 取消放置</button>
+                <button id="btn-stamp-today" disabled>
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2C9 2 5 5.5 5 9.5C5 11.985 6.791 14 9 14C11.209 14 13 11.985 13 9.5C13 5.5 9 2 9 2Z" fill="rgba(255,255,255,0.85)"/><path d="M9 14V17" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/><path d="M6.5 15.5H11.5" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/></svg>
+                    盖下今日印记
+                </button>
+            </div>
+        </div>
+
+        <div id="controls">
+            <button class="ctrl-btn" id="btn-undo">↩ 撤销</button>
+            <button class="ctrl-btn" id="btn-redo">↪ 重做</button>
+            <button class="ctrl-btn danger" id="btn-del">✕ 删除选中</button>
+            <button class="ctrl-btn" id="btn-dl">保存这张共绘画布</button>
+            <button class="ctrl-btn" id="btn-desel">◎ 取消选中</button>
+        </div>
+
+        <p id="hint">把印章轻轻放进画布里，风景会慢慢长出来。</p>
+
+        <div id="bottom-modules">
+            <div class="bmod" id="mod-progress">
+                <div class="bmod-header">
+                    <svg class="bmod-icon" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="#7E8F73" stroke-width="1.4"/><path d="M8 4.5V8.5L10.5 10" stroke="#7E8F73" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    <span class="bmod-title">今日进度</span>
+                </div>
+                <div class="progress-main"><span class="prog-num">1</span><span class="prog-total">/ 30天</span></div>
+                <div class="prog-notes"><span class="prog-note">今日已记录 0 枚</span><span class="prog-note">已连续参与 1 天</span></div>
+                <div class="prog-bar-wrap"><div class="prog-bar-bg"><div class="prog-bar-fill"></div></div></div>
+            </div>
+
+            <div class="bmod" id="mod-records">
+                <div class="bmod-header">
+                    <svg class="bmod-icon" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M3 8h7M3 12h5" stroke="#7E8F73" stroke-width="1.4" stroke-linecap="round"/></svg>
+                    <span class="bmod-title">今日留下的印记</span>
+                </div>
+                <div class="record-list">
+                    <div class="record-item placeholder"><div class="record-avatar">禾</div><span class="record-text">阿禾 留下了向日葵 <em>· 刚刚</em></span><svg class="record-stamp-icon" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="7" r="4" stroke="#A9BE8D" stroke-width="1.3"/><path d="M9 11v4M6.5 14h5" stroke="#A9BE8D" stroke-width="1.3" stroke-linecap="round"/></svg></div>
+                    <div class="record-item placeholder"><div class="record-avatar">风</div><span class="record-text">春风 留下了小房子 <em>· 3分钟前</em></span><svg class="record-stamp-icon" viewBox="0 0 18 18" fill="none"><path d="M3 9L9 3l6 6" stroke="#A9BE8D" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><rect x="6" y="9" width="6" height="6" rx="1" stroke="#A9BE8D" stroke-width="1.3"/></svg></div>
+                    <div class="record-item placeholder"><div class="record-avatar">暖</div><span class="record-text">暖暖 留下了长椅 <em>· 8分钟前</em></span><svg class="record-stamp-icon" viewBox="0 0 18 18" fill="none"><rect x="2" y="7" width="14" height="3" rx="1.5" stroke="#A9BE8D" stroke-width="1.3"/><path d="M5 10v3M13 10v3" stroke="#A9BE8D" stroke-width="1.3" stroke-linecap="round"/></svg></div>
+                </div>
+            </div>
+
+            <div class="bmod" id="mod-meaning">
+                <div class="bmod-header">
+                    <svg class="bmod-icon" viewBox="0 0 16 16" fill="none"><path d="M8 13.5C8 13.5 2 10 2 5.5C2 3.567 3.567 2 5.5 2C6.6 2 7.6 2.55 8 3.4C8.4 2.55 9.4 2 10.5 2C12.433 2 14 3.567 14 5.5C14 10 8 13.5 8 13.5Z" stroke="#7E8F73" stroke-width="1.3" stroke-linejoin="round"/></svg>
+                    <span class="bmod-title">共绘的意义</span>
+                </div>
+                <p class="meaning-body">让爱在一次次微小的互助里，慢慢长成我们共同生活的风景。</p>
+                <svg class="meaning-deco" viewBox="0 0 90 70" fill="none"><path d="M45 65 C45 65 45 40 45 30" stroke="#A9BE8D" stroke-width="2" stroke-linecap="round"/><path d="M45 45 C38 38 28 38 24 32" stroke="#A9BE8D" stroke-width="1.5" stroke-linecap="round"/><path d="M45 38 C52 31 62 31 66 25" stroke="#A9BE8D" stroke-width="1.5" stroke-linecap="round"/><path d="M45 52 C40 46 33 46 30 41" stroke="#A9BE8D" stroke-width="1.3" stroke-linecap="round"/><ellipse cx="24" cy="30" rx="7" ry="5" fill="#A9BE8D" opacity=".6" transform="rotate(-20 24 30)"/><ellipse cx="66" cy="23" rx="7" ry="5" fill="#A9BE8D" opacity=".6" transform="rotate(20 66 23)"/><ellipse cx="30" cy="39" rx="5" ry="4" fill="#A9BE8D" opacity=".5" transform="rotate(-15 30 39)"/></svg>
+            </div>
+
+            <div class="bmod" id="mod-nickname">
+                <div class="bmod-header">
+                    <svg class="bmod-icon" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5.5" r="3" stroke="#7E8F73" stroke-width="1.3"/><path d="M2 14c0-3.314 2.686-5 6-5s6 1.686 6 5" stroke="#7E8F73" stroke-width="1.3" stroke-linecap="round"/></svg>
+                    <span class="bmod-title">给自己起一个昵称</span>
+                </div>
+                <p class="nick-desc">在开始共绘前，先留下你的名字</p>
+                <input class="nick-input" id="nick-input" type="text" placeholder="输入你的昵称…" maxlength="10"/>
+                <button class="nick-btn" id="nick-btn">确认昵称</button>
+                <span class="nick-confirmed-tip">已记住，开始共绘吧 ✓</span>
+            </div>
+        </div>
+        
+        <div id="save-modal">
+            <div class="save-panel">
+                <button class="close-save" id="btn-close-save">完成并返回首页 ↺</button>
+                
+                <div class="save-left-area">
+                    <div class="save-tabs">
+                        <button class="save-tab active" id="tab-canvas">原始画布</button>
+                        <button class="save-tab" id="tab-bookmark">月历书签</button>
+                    </div>
+                    <div id="month-selector-wrap" style="display: none;">
+                        <p>选择你的幸运数字，生成对应月份的共绘书签</p>
+                        <div id="month-grid"></div>
+                    </div>
+                    <div class="save-preview-wrap">
+                        <canvas id="save-preview-canvas"></canvas>
+                        <img id="save-preview-img" style="display: none;" alt="书签预览">
+                    </div>
+                </div>
+
+                <div class="save-qr-wrap">
+                    <h3 id="save-modal-title">分享画布</h3>
+                    <div class="qr-border">
+                        <img id="save-qr-img" src="" alt="QR Code">
+                    </div>
+                    <p id="save-modal-desc">扫码邀请好友一起共绘<br><span style="font-size: 11px; color: #A9BE8D;">(保存画作请点击下方按钮)</span></p>
+                    <button class="real-dl-btn" id="btn-actual-dl">↓ 保存画作到设备</button>
+                    <button class="copy-url-btn" id="btn-copy-share-url">复制当前画布链接</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="mechanism-modal">
+            <div class="mechanism-panel">
+                <button class="close-mechanism" id="btn-close-mechanism">×</button>
+                <h3>共绘机制</h3>
+                <p>进入画布前，可点击旋转图像，阅读不同的故事片段。</p>
+                <p>进入画布后，选择日期、输入昵称，并从右侧选择印章放入画布。每一枚印章都代表一次微小的陪伴、互助或回应。</p>
+                <p>参与完成后，可保存原始共绘画布，也可以选择幸运数字，生成对应月份的月历书签。</p>
+                <p>每一次盖印，都会让空白画布慢慢长成一幅共同生活的风景。</p>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // 定义全局变量用于保存生成的分享链接和视图状态
+        let globalShareUrl = '';
+        let isSharedViewGlobal = false;
+        
+        // 书签相关变量
+        let currentExportMode = 'canvas'; 
+        let originalCanvasDataUrl = ''; 
+        let bookmarkDataUrl = ''; 
+        let selectedBookmarkMonth = 1; 
+        const BOOKMARK_FRAME = { x: 1, y: 81, width: 707, height: 613 };
+
+        document.addEventListener("DOMContentLoaded", () => {
+            // ==========================================
+            // 检测是否是通过分享链接打开 (跳过开屏动画并增加移动端类)
+            // ==========================================
+            const urlParamsParsed = new URLSearchParams(window.location.search);
+            if (urlParamsParsed.has('share')) {
+                isSharedViewGlobal = true;
+            }
+
+            if (isSharedViewGlobal) {
+                // 增加手机端分享模式专属的 class 以应用 CSS
+                document.body.classList.add('mobile-share-mode');
+
+                // 隐藏前三层
+                const beadsScreen = document.getElementById('beads-welcome-screen');
+                const loadingScreen = document.getElementById('loading-screen');
+                const introOverlay = document.getElementById('intro-overlay');
+                const mainContent = document.getElementById('main-content');
+                
+                if (beadsScreen) beadsScreen.style.display = 'none';
+                if (loadingScreen) loadingScreen.style.display = 'none';
+                if (introOverlay) introOverlay.style.display = 'none';
+                if (mainContent) {
+                    mainContent.style.display = 'flex';
+                    mainContent.classList.add('visible');
+                }
+                document.body.style.overflow = 'auto';
+            } else {
+                // --- 0. 3D 立体拼豆降落模块 (仅在非分享模式下启动) ---
+                const beadsContainer = document.getElementById('beads-container');
+                const beadsScreen = document.getElementById('beads-welcome-screen');
+                const beadColors = [
+                    { main: '#F9D342', side: '#B39731' }, { main: '#FF6B6B', side: '#B74D4D' }, 
+                    { main: '#4CAF50', side: '#327A36' }, { main: '#45B7D1', stroke: '#318699' }, 
+                    { main: '#9C27B0', side: '#6D1B7B' }, { main: '#FF9800', side: '#B36A00' }
+                ];
+                let beadsInterval = null;
+                let hasClickedWelcome = false;
+
+                function createBead() {
+                    if (!beadsContainer) return;
+                    const bead = document.createElement('div');
+                    bead.classList.add('bead-item');
+                    const colorSet = beadColors[Math.floor(Math.random() * beadColors.length)];
+                    bead.style.setProperty('--bead-color-top', colorSet.main);
+                    bead.style.setProperty('--bead-color-side', colorSet.side || colorSet.main);
+                    bead.style.left = (Math.random() * 100) + 'vw';
+                    const duration = Math.random() * 3 + 2;
+                    bead.style.animationDuration = duration + 's';
+                    bead.style.animationDelay = (Math.random() * 2) + 's';
+                    beadsContainer.appendChild(bead);
+                    setTimeout(() => { bead.remove(); }, (duration + 2) * 1000);
+                }
+
+                function startBeadsGenerator() {
+                    for(let i=0; i<45; i++) createBead();
+                    beadsInterval = setInterval(createBead, 160);
+                }
+                function stopBeadsGenerator() {
+                    clearInterval(beadsInterval);
+                    beadsContainer.innerHTML = '';
+                }
+                
+                startBeadsGenerator();
+
+                beadsScreen.addEventListener("click", () => {
+                    if (hasClickedWelcome) return;
+                    hasClickedWelcome = true;
+                    beadsScreen.style.opacity = "0";
+                    setTimeout(() => {
+                        beadsScreen.style.display = "none";
+                        stopBeadsGenerator();
+                        const loadingScreen = document.getElementById("loading-screen");
+                        if(loadingScreen){
+                            loadingScreen.style.display = "flex";
+                            loadingScreen.offsetHeight;
+                            loadingScreen.style.opacity = "1";
+                        }
+                    }, 800);
+                });
+            }
+
+            // ==========================================
+            // 3秒轮播控制
+            // ==========================================
+            const ringTexts = [
+                { title: "种子", desc: "让靠近成为开始，<br>也让陪伴有了落地的地方。" },
+                { title: "扎根", desc: "让彼此的声音被听见，<br>也让温柔在阅读中慢慢发芽。" },
+                { title: "萌芽", desc: "让关怀在双手之间传递，<br>也让爱在细节里慢慢成形。" },
+                { title: "展叶", desc: "让情绪被看见，<br>也让彼此在理解里慢慢靠近。" },
+                { title: "展叶", desc: "让关系在共同创造里生长，<br>也让爱在你来我往里慢慢成形。" },
+                { title: "盛放", desc: "让笑容被留下，<br>也让陪伴在记忆里慢慢丰盛。" },
+                { title: "盈实", desc: "让幸福被一点点积累，<br>也被一格一格地看见。" },
+                { title: "归根", desc: "让故事被继续讲下去，<br>也让爱与勇气慢慢留下来。" }
+            ];
+            let currentTextIndex = 0;
+            let textRotationInterval = null;
+            let textFadeTimeout = null; 
+
+            function startRingTextRotation() {
+                const textContainer = document.getElementById('ring-center-text');
+                const titleEl = textContainer.querySelector('.ring-seed-title');
+                const descEl = textContainer.querySelector('.ring-seed-desc');
+                
+                if (!textContainer || !titleEl || !descEl) return;
+
+                clearInterval(textRotationInterval); 
+                clearTimeout(textFadeTimeout);
+
+                textRotationInterval = setInterval(() => {
+                    textContainer.classList.remove('visible');
+
+                    textFadeTimeout = setTimeout(() => {
+                        currentTextIndex = (currentTextIndex + 1) % ringTexts.length;
+                        titleEl.innerHTML = ringTexts[currentTextIndex].title;
+                        descEl.innerHTML = ringTexts[currentTextIndex].desc;
+                        
+                        textContainer.classList.add('visible');
+                    }, 800); 
+                }, 3000); 
+            }
+
+            function stopRingTextRotation() {
+                clearInterval(textRotationInterval);
+                clearTimeout(textFadeTimeout); 
+                currentTextIndex = 0;
+                
+                const textContainer = document.getElementById('ring-center-text');
+                if (textContainer) {
+                    textContainer.style.transition = 'none'; 
+                    textContainer.classList.remove('visible'); 
+                    
+                    const titleEl = textContainer.querySelector('.ring-seed-title');
+                    const descEl = textContainer.querySelector('.ring-seed-desc');
+                    if(titleEl && descEl) {
+                        titleEl.innerHTML = ringTexts[0].title;
+                        descEl.innerHTML = ringTexts[0].desc;
+                    }
+                    
+                    textContainer.offsetHeight; 
+                    textContainer.style.transition = ''; 
+                }
+            }
+
+
+            // --- 1. 原有 3D 照片墙与画廊数据 ---
+            const galleryData = [
+                { src: "./image/1.png", text: "NO. 104\nHIVE STRUCTURE\n\n这是一次基于 Bee Hotel 概念的测试。\n我使用了当地的芦苇和干草，并结合了传统的“火炬”结构 (torch structures) 来进行搭建。\n整个过程感觉就像是在做一个微缩的建筑项目。\n\n希望蜜蜂们会喜欢这个新家。" },
+                { src: "./image/2.png", text: "02 立春\n阅读时，\n心也在悄悄发芽。\n\n一次共读，是一次靠近；\n一句讲述，是一次回应。\n\n立春以后，万物开始从沉睡中慢慢苏醒。\n人与人之间的关系，\n也像一颗埋在土里的种子，\n在安静里悄悄生出嫩芽。\n阅读并不是单向的讲述，\n它更像是一场缓慢发生的相遇。\n长者的声音、孩子的目光、书页翻动的节奏，\n会在同一个片刻里交汇，\n把原本分散的感受慢慢连在一起。\n那些看似细小的共读时刻，\n正在让陪伴扎根，也让情感生长。\n\n扎根\n让彼此的声音被听见，\n也让温柔在阅读中慢慢发芽。" },
+                { src: "./image/3.png", text: "03 春分\n在寂静中，\n我们能否听见彼此心底的声音？\n\n有些靠近不需要太多言语，\n只需要一个愿意倾听的时刻。\n\n春分把季节带进一种平衡而柔和的状态。\n光与影、昼与夜，\n都在这一天彼此靠近。\n人与人之间的关系，\n也常常是在这样平静的时刻里，\n慢慢听见对方更真实的部分。\n安静并不意味着空白，\n它反而为倾听留出了位置。\n当一个人愿意讲述，另一个人愿意耐心停留，\n那些原本藏在心里的感受，\n就会在陪伴中一点点浮现出来。\n而真正的靠近，\n往往正是从这份被听见开始的。\n\n扎根\n让心里的声音被接住，\n也让关系在安静里慢慢长出来。" },
+                { src: "./image/4.png", text: "04 谷雨\n约定的时间，\n是否能成为爱的节拍器？\n\n在一次次如约而至里，\n陪伴慢慢有了自己的节奏。\n\n谷雨之后，春天开始进入更丰润的阶段。\n雨水有了节律，万物也在这样的节律里继续生长。\n人与人之间的陪伴也是如此。\n有些爱并不依赖宏大的表达，\nIt更像被一次次记住的时间，\n在规律的相处里，\n慢慢长出令人安心的节拍。\n当约定被遵守，当回应不被缺席，\n关系就不再只是短暂停留，\n而变成了一种可以依赖、可以感知、\n也可以被信任的存在。\n时间在这里不只是流逝，\n它也在悄悄把陪伴打磨得更深。\n\n扎根\n让一次次相见成为节奏，\n也让爱在规律里慢慢舒展。" },
+                { src: "./image/5.png", text: "05 立夏\n你手里的每一道纹路，\n是否也在把爱一点一点缝给我？\n\n有些关怀不是说出来的，\n而是在手把手的传递里被看见。\n\n立夏以后，万物变得更明亮，也更有力度。\n人与人之间的相处，\n也会在共同完成一件事的过程中，\n慢慢显出更具体的温度。\n一针一线、一来一回、一次示范、一次模仿，\n这些细小的动作，\n都在把经验、耐心与关怀悄悄传下去。\n手作不只是制作，\n它也是一种安静而具体的陪伴。\n当长者愿意教，孩子愿意学，\n关系就不再只是“在一起”，\n而是变成了共同完成、共同经历、共同留下痕迹的过程。\n那些缝进去的，不只是线，\n也是看不见却真实存在的爱。\n\n萌芽\n让关怀在双手之间传递，\n也让爱在细节里慢慢成形。" },
+                { src: "./image/6.png", text: "06 夏至\n你笔下的每一个字，\n是否都是我未说出口的梦？\n\n写下来的，不只是文字，\n也是那些还没来得及说出的心事。\n\n夏至把一年带到最明亮的时刻。\n而在这份明亮里，\n有些心里的想法，也更容易慢慢浮现。\n写字并不只是记录，\n它有时也是一种试着把自己表达出来的方式。\n一笔一画之间，\n孩子的想象、愿望与还未说出的梦，\n都在慢慢长出形状。\n而当身边有人愿意陪着写、陪着看、陪着读，\n表达就不再是孤单的事。\n那些被认真写下来的字句，\n既是对内心的整理，\n也是一次“我愿意把自己交给你看”的靠近。\n\n萌芽\n让未说出口的梦被写下来，\n也让表达在陪伴里慢慢变得饱满。" },
+                { src: "./image/7.png", text: "07 小暑\n我们的情绪可以放大，\n让我们彼此都看见吗？\n\n真正的靠近，\n也许就是让彼此的感受被认真看见。\n\n小暑以后，天气开始变得热烈，\n情绪也仿佛更容易被触碰。\n人与人之间的关系，\n有时并不是因为说了多少话而靠近，\n而是因为彼此愿意停下来，\n认真看见对方的情绪。\n那些轻微的开心、难过、犹豫和期待，\n如果被接住，\n就会成为关系里很珍贵的一部分。\n看见不是审视，\n而是一种愿意理解的姿态。\n当一个人不再被忽略，\n他也就不再需要把自己藏起来。\n而陪伴的意义，\n也正在于让这些细小的感受有了可以安放的地方。\n\n展叶\n让情绪被看见，\n也让彼此在理解里慢慢靠近。" },
+                { src: "./image/8.png", text: "08 立秋\n你添一笔，\n我加一笔，爱在指尖生长。\n\n有些关系不是单独完成的，\n而是在一来一往里慢慢被补全。\n\n立秋并不是骤然的转冷，\n而是在热意尚未退去时，\n让季节开始慢慢转向。\n人与人之间的关系也是如此。\n它往往不是一下子完整，\n而是在你来我往的互动里，\n一点一点被画出来、补出来、完成起来。\n一笔、一划、一次接力、一次回应，\n看起来都很小，\n却让原本分散的感受，\n渐渐长成一个可以被看见的整体。\n共同创造的过程，\n让陪伴不再只是停留，\n而成为真正的参与。\n而爱，\n也就在这样的共同完成里，\n长出了自己的形状。\n\n展叶\n让关系在共同创造里生长，\n也让爱在你来我往里慢慢成形。" },
+                { src: "./image/9.png", text: "09 秋分\n秋色抱满，\n我们的笑容也同样饱满。\n\n当季节走向丰盛，\n陪伴也在记忆里慢慢有了重量。\n\n秋分把季节带到一种恰到好处的丰盈里。\n光线柔和下来，风也慢慢沉静，\n那些一路走来的相处与回应，\n开始累积出更清晰的形状。\n有些关系不再只是刚刚萌发的嫩意，\n而是在共同经历里，\n长出了饱满与安定。\n一个笑容、一张照片、一个被留住的瞬间，\n看起来很轻，\n却把彼此真实拥有过的温度保存了下来。\n秋天不是结束，\n更像是让那些曾经生长过的情感，\n轻轻被收进记忆里。\n\n盛放\n让笑容被留下，\n也让陪伴在记忆里慢慢丰盛。" },
+                { src: "./image/10.png", text: "10 霜露\n你给我的小礼物，\n是否成为了我们之间的秘密？\n\n有些心意很小，\n却会在彼此之间留下很长的回声。\n\n霜露之后，季节开始变得更安静。\n风渐凉了，\n人与人之间的心意，\n却常常在这样的时刻显得更清楚。\n一件小礼物，看起来轻，\n却藏着没有说出口的在意与回应。\n它不只是被送出的东西，\n也是被认真收下、被悄悄记住的一份心意。\n当礼物在两个人之间往来，\n关系也就有了只属于彼此的小长秘密。\n那些被交换、被收藏、被珍惜的瞬间，\n正让陪伴在时间里慢慢扎下根来。\n\n盈实\n让心意被轻轻收下，\n也让爱在秘密里慢慢生长。" },
+                { src: "./image/11.png", text: "11 立冬\n每个完成的格子，\n是否都是我们共种的幸福印记？\n\n有些幸福不是突然长成的，\n而是在一次次完成里慢慢显现。\n\n立冬以后，季节开始走向收藏与沉淀。\n而人与人之间的陪伴，\n也会在一次次共同参与里，\n慢慢积累出更清晰的形状。\n一个被填满的格子看起来很小，\n却装着一起度过的时间、回应和笑声。\n幸福有时并不是很大的东西，\n它更像这些被认真完成的小小印记，\n在不知不觉中，\n把陪伴一点一点积累成了丰盛的模样。\n当我们一起把空白填满，\n关系也就在这样的过程里，\n慢慢走向成熟。\n\n盈实\n让幸福被一点点积累，\n也被一格一格地看见。" },
+                { src: "./image/12.png", text: "12 冬至\n古老的故事里，\n是否住着永不老去的爱与勇气？\n\n有些故事从很久以前走来，\n也把温暖与力量轻轻留在今天。\n\n冬至把季节带进一年最深的安静。\n而那些被一代代讲述下来的故事，\n却总能在这样的时刻，\n带来温暖与光亮。\n故事不只是过去的回声，\n    它也是被继续传递的爱与勇气。\n当长者开口讲述，孩子认真倾听，\n时间就像被轻轻连在了一起。\n那些古老的记忆、温柔的叮嘱和不曾熄灭的力量，\n也就在这样的讲述里，\n慢慢住进彼此心里。\n而陪伴，\n也因为这样的传递，\n拥有了更深的根系。\n\n归根\n让故事被继续讲下去，\n也让爱与勇气慢慢留下来。" }
+            ];
+
+            const ring = document.getElementById("ring"); const zoomWrapper = document.getElementById("zoom-wrapper");
+            const enterBtn = document.getElementById("enter-btn"); const introOverlay = document.getElementById("intro-overlay");
+            const mainContent = document.getElementById("main-content"); const lightbox = document.getElementById("lightbox");
+            const lightboxPanel = document.getElementById("lightbox-panel"); const lightboxImg = document.getElementById("lightbox-img");
+            const lightboxText = document.getElementById("lightbox-text"); const loadingScreen = document.getElementById("loading-screen");
+            
+            let hasStarted = false; const images = []; const totalImages = galleryData.length; let isInteractivePhase = false; 
+            let introTimeouts = []; let idleTimer = null; const IDLE_TIMEOUT = 30000;
+
+            // --- 全局：无操作与主动触发的完全重置返场机制 ---
+            window.resetToStart = () => {
+                introTimeouts.forEach(clearTimeout); introTimeouts = []; clearTimeout(idleTimer);
+                
+                // 仅非分享页面才有拼豆首屏
+                if (!isSharedViewGlobal && typeof stopBeadsGenerator === 'function') {
+                    stopBeadsGenerator();
+                    const beadsScreen = document.getElementById('beads-welcome-screen');
+                    if (beadsScreen) {
+                        beadsScreen.style.display = "flex"; beadsScreen.offsetHeight; beadsScreen.style.opacity = "1";
+                    }
+                    if (typeof startBeadsGenerator === 'function') startBeadsGenerator();
+                }
+                
+                stopRingTextRotation(); 
+                
+                hasStarted = false; isInteractivePhase = false; hasClickedWelcome = false;
+
+                if(lightbox) lightbox.classList.remove("active");
+                const saveModal = document.getElementById("save-modal");
+                if (saveModal) saveModal.classList.remove("active");
+                
+                // 新增：关闭共绘机制弹窗
+                const mechanismModal = document.getElementById('mechanism-modal');
+                if (mechanismModal) mechanismModal.classList.remove('active');
+
+                document.dispatchEvent(new CustomEvent('reset-canvas-state'));
+
+                const ringText = document.getElementById('ring-center-text');
+                if (ringText) ringText.classList.remove("visible");
+
+                if (!isSharedViewGlobal) {
+                    if(loadingScreen) { loadingScreen.style.display = "none"; loadingScreen.style.opacity = "0"; }
+                    if(introOverlay) { introOverlay.style.display = "block"; introOverlay.style.opacity = "1"; introOverlay.style.pointerEvents = "auto"; }
+                    document.body.style.overflow = "hidden";
+                    if(mainContent) { mainContent.style.display = "none"; mainContent.classList.remove("visible"); }
+
+                    if(ring) { ring.classList.remove("spin-arc"); ring.style.animationPlayState = "running"; }
+                    if(zoomWrapper) zoomWrapper.style.transform = "translateY(0px) rotateX(0deg) scale(1)";
+
+                    images.forEach(img => {
+                        img.style.transition = "none"; img.style.transform = "translateY(-120vh) scale(1.2)"; img.style.opacity = "0"; img.style.pointerEvents = "none";
+                        img.offsetHeight; img.style.transition = ""; 
+                    });
+
+                    if(enterBtn) { enterBtn.style.opacity = "0"; enterBtn.style.pointerEvents = "none"; }
+                }
+                
+                window.scrollTo({ top: 0, behavior: 'smooth' }); 
+            };
+
+            // ==========================================
+            // 【核心修复】超时重置逻辑
+            // ==========================================
+            window.resetIdleTimer = () => {
+                clearTimeout(idleTimer);
+                // 无论是分享模式还是正常模式，只要页面启动了，就开始计时
+                if (isSharedViewGlobal || hasStarted) { 
+                    idleTimer = setTimeout(() => { 
+                        if (isSharedViewGlobal) {
+                            // 如果是分享模式，超时后直接刷新页面，回到原始分享状态
+                            window.location.reload(); 
+                        } else {
+                            // 正常模式，调用已有的重置逻辑回到欢迎屏
+                            window.resetToStart(); 
+                        }
+                    }, IDLE_TIMEOUT); 
+                }
+            };
+
+            ['mousemove', 'mousedown', 'click', 'scroll', 'touchstart', 'touchmove', 'keydown'].forEach(evt => {
+                document.addEventListener(evt, window.resetIdleTimer, { passive: true });
+            });
+
+            if (!isSharedViewGlobal && ring) {
+                galleryData.forEach((data, index) => {
+                    const img = document.createElement("img"); img.src = data.src; img.className = "img-item";
+                    ring.appendChild(img); images.push(img);
+                    img.addEventListener("click", () => {
+                        if (!isInteractivePhase) return; ring.style.animationPlayState = "paused";
+                        lightboxImg.src = data.src; lightboxText.innerText = data.text; lightbox.classList.add("active");
+                    });
+                });
+            }
+
+            if(lightbox) lightbox.addEventListener("click", () => { lightbox.classList.remove("active"); if(ring) ring.style.animationPlayState = "running"; });
+            if(lightboxPanel) lightboxPanel.addEventListener("click", (e) => { e.stopPropagation(); });
+
+            if (!isSharedViewGlobal && loadingScreen) {
+                loadingScreen.addEventListener("click", () => {
+                    if (hasStarted) return; hasStarted = true;
+                    window.resetIdleTimer(); 
+
+                    loadingScreen.style.opacity = "0";
+                    introTimeouts.push(setTimeout(() => { loadingScreen.style.display = "none"; }, 800));
+                    
+                    introTimeouts.push(setTimeout(() => { images.forEach((img, index) => { introTimeouts.push(setTimeout(() => { const randomX = (Math.random() - 0.5) * 80; const randomY = (Math.random() - 0.5) * 60; const randomRotate = (Math.random() - 0.5) * 40; img.style.opacity = "1"; img.style.transform = `translate(${randomX}px, ${randomY}px) rotateZ(${randomRotate}deg) scale(1)`; }, index * 120)); }); }, 100));
+                    introTimeouts.push(setTimeout(() => { const spreadSpacing = window.innerWidth * 0.055; images.forEach((img, index) => { const xOffset = (index - (totalImages - 1) / 2) * spreadSpacing; img.style.transform = `translate3d(${xOffset}px, 0, 0) rotateY(-30deg) scale(0.35)`; }); }, 3200));
+                    
+                    introTimeouts.push(setTimeout(() => { 
+                        const radius = 350; 
+                        images.forEach((img, index) => { 
+                            const angle = index * (360 / totalImages); 
+                            img.style.transform = `rotateY(${angle}deg) translateZ(${radius}px) scale(0.4)`; 
+                        }); 
+                        
+                        const ringText = document.getElementById('ring-center-text');
+                        if (ringText) {
+                            ringText.classList.add('visible');
+                            startRingTextRotation(); // 启动3秒轮播
+                        }
+                    }, 4800));
+
+                    introTimeouts.push(setTimeout(() => { const finalRadius = 700; images.forEach((img, index) => { img.style.transition = "transform 2s cubic-bezier(0.65, 0, 0.35, 1), opacity 0.6s ease"; const angle = index * (360 / totalImages); img.style.transform = `rotateZ(${angle}deg) translateY(${-finalRadius}px) scale(0.85)`; img.style.pointerEvents = "auto"; }); zoomWrapper.style.transform = "translateY(600px) rotateX(-5deg) scale(1)"; ring.classList.add("spin-arc"); enterBtn.style.opacity = "1"; enterBtn.style.pointerEvents = "auto"; isInteractivePhase = true; }, 7000));
+                });
+            }
+
+            if(enterBtn) {
+                enterBtn.addEventListener("click", () => {
+                    stopRingTextRotation(); 
+
+                    introOverlay.style.opacity = "0"; introOverlay.style.pointerEvents = "none";
+                    mainContent.style.display = "flex"; 
+                    requestAnimationFrame(() => { requestAnimationFrame(() => { mainContent.classList.add("visible"); }); });
+                    introTimeouts.push(setTimeout(() => { introOverlay.style.display = "none"; document.body.style.overflow = "auto"; }, 1000));
+                });
+            }
+
+            const btnCopyShareUrl = document.getElementById('btn-copy-share-url');
+            if (btnCopyShareUrl) {
+                btnCopyShareUrl.addEventListener('click', () => {
+                    if (globalShareUrl) {
+                        navigator.clipboard.writeText(globalShareUrl).then(() => {
+                            alert('当前画布链接已复制');
+                        }).catch(err => {
+                            console.error('复制失败', err);
+                            alert('复制失败，请手动复制');
+                        });
+                    }
+                });
+            }
+
+            // ==========================================
+            // 【书签恢复】书签功能按钮生成与切换逻辑
+            // ==========================================
+            const monthGrid = document.getElementById('month-grid');
+            if (monthGrid) {
+                for(let i=1; i<=12; i++) {
+                    const btn = document.createElement('button');
+                    btn.className = 'month-btn';
+                    if (i === 1) btn.classList.add('active');
+                    btn.textContent = i;
+                    btn.addEventListener('click', () => {
+                        document.querySelectorAll('.month-btn').forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                        selectedBookmarkMonth = i;
+                        updatePreviewDisplay();
+                    });
+                    monthGrid.appendChild(btn);
+                }
+            }
+
+            const tabCanvas = document.getElementById('tab-canvas');
+            const tabBookmark = document.getElementById('tab-bookmark');
+            if (tabCanvas && tabBookmark) {
+                tabCanvas.addEventListener('click', () => {
+                    currentExportMode = 'canvas';
+                    tabCanvas.classList.add('active');
+                    tabBookmark.classList.remove('active');
+                    document.getElementById('month-selector-wrap').style.display = 'none';
+                    updatePreviewDisplay();
+                });
+                tabBookmark.addEventListener('click', () => {
+                    currentExportMode = 'bookmark';
+                    tabBookmark.classList.add('active');
+                    tabCanvas.classList.remove('active');
+                    document.getElementById('month-selector-wrap').style.display = 'block';
+                    updatePreviewDisplay();
+                });
+            }
+            
+            // ==========================================
+            // 【书签恢复】合成书签图核心函数
+            // ==========================================
+            function createBookmarkImage(month, cb) {
+                const template = new Image();
+                template.crossOrigin = 'anonymous';
+                template.onload = () => {
+                    const expCanvas = document.createElement('canvas');
+                    expCanvas.width = template.naturalWidth || template.width;
+                    expCanvas.height = template.naturalHeight || template.height;
+                    const ectx = expCanvas.getContext('2d');
+                    
+                    // 1. 画底图
+                    ectx.drawImage(template, 0, 0, expCanvas.width, expCanvas.height);
+                    
+                    // 2. 嵌入当前共绘画布(cover模式)
+                    const frame = BOOKMARK_FRAME;
+                    const canvasEl = document.getElementById('canvas');
+                    const srcRatio = canvasEl.width / canvasEl.height;
+                    const dstRatio = frame.width / frame.height;
+                    let sWidth = canvasEl.width;
+                    let sHeight = canvasEl.height;
+                    let sx = 0, sy = 0;
+                    
+                    if (srcRatio > dstRatio) {
+                        sWidth = canvasEl.height * dstRatio;
+                        sx = (canvasEl.width - sWidth) / 2;
+                    } else {
+                        sHeight = canvasEl.width / dstRatio;
+                        sy = (canvasEl.height - sHeight) / 2;
+                    }
+                    
+                    ectx.drawImage(canvasEl, sx, sy, sWidth, sHeight, frame.x, frame.y, frame.width, frame.height);
+                    
+                    try {
+                        bookmarkDataUrl = expCanvas.toDataURL('image/png');
+                        if(cb) cb(bookmarkDataUrl);
+                    } catch(e) {
+                        console.error("生成书签失败，可能是跨域问题:", e);
+                        if(cb) cb(null);
+                    }
+                };
+                template.onerror = () => {
+                    console.error(`书签模板 bookmark-${month} 加载失败`);
+                    if(cb) cb(null);
+                };
+                const mStr = month < 10 ? '0' + month : month;
+                template.src = `./bookmark-${mStr}.png`;
+            }
+
+            // 更新弹窗左侧预览与二维码
+            function updatePreviewDisplay() {
+                const previewCanvas = document.getElementById('save-preview-canvas');
+                const previewImg = document.getElementById('save-preview-img');
+                const qrImg = document.getElementById('save-qr-img');
+
+                let qrUrl = globalShareUrl;
+
+                if (currentExportMode === 'canvas') {
+                    if(previewCanvas) previewCanvas.style.display = 'block';
+                    if(previewImg) previewImg.style.display = 'none';
+                    
+                    if (qrImg && !isSharedViewGlobal) {
+                        qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&margin=2&data=${encodeURIComponent(qrUrl)}`;
+                    }
+                } else {
+                    if(previewCanvas) previewCanvas.style.display = 'none';
+                    if(previewImg) previewImg.style.display = 'block';
+                    
+                    if (qrImg && !isSharedViewGlobal) {
+                        qrUrl += `&export=bookmark&month=${selectedBookmarkMonth}`;
+                        qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&margin=2&data=${encodeURIComponent(qrUrl)}`;
+                    }
+
+                    createBookmarkImage(selectedBookmarkMonth, (dataUrl) => {
+                        if (dataUrl && previewImg) previewImg.src = dataUrl;
+                    });
+                }
+            }
+
+            // ==========================================
+            // 【弹窗】绑定共绘画布弹窗交互
+            // ==========================================
+            const btnMechanism = document.getElementById('btn-mechanism');
+            const mechanismModal = document.getElementById('mechanism-modal');
+            const btnCloseMechanism = document.getElementById('btn-close-mechanism');
+
+            if (btnMechanism && mechanismModal && btnCloseMechanism) {
+                btnMechanism.addEventListener('click', (e) => {
+                    e.preventDefault(); 
+                    mechanismModal.classList.add('active');
+                });
+                btnCloseMechanism.addEventListener('click', () => {
+                    mechanismModal.classList.remove('active');
+                });
+                mechanismModal.addEventListener('click', (e) => {
+                    if (e.target === mechanismModal) {
+                        mechanismModal.classList.remove('active');
+                    }
+                });
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape' && mechanismModal.classList.contains('active')) {
+                        mechanismModal.classList.remove('active');
+                    }
+                });
+            }
+
+            // 将 updatePreviewDisplay 挂载到 window 供下方闭包调用
+            window.updatePreviewDisplay = updatePreviewDisplay;
+            window.createBookmarkImage = createBookmarkImage;
+        });
+
+        // --- 2. 原社区画布核心功能交互代码 ---
+        (() => {
+            'use strict';
+            const canvas = document.getElementById('canvas'); const ctx = canvas.getContext('2d'); const W = canvas.width, H = canvas.height;
+            let stamps = [], selectedId = null, nextId = 1, history = [], histIdx = -1;
+            let placingType = null, placingScale = 1, ghostX = -200, ghostY = -200;
+            let dragging = false, dragMoved = false, dragDX = 0, dragDY = 0;
+            let isSharedDataLoaded = false; 
+
+            const IMG_FILES = {
+                stone: 'stone.png', flower: 'hd.png', branch: 'branch.png', sun: 'sun.png', bird: 'bird.png', sakura: 'sakula.png', cloud: '云2.png', leaf: 'sy.png',
+                maple: 'fy.png', lilyofvalley: 'll.png', trunk: 'zg.png', sunflower: 'flower.png', grass: 'grass.png', chair1: 'chair1.png', chair2: 'chair2.png', flower1: 'flower1.png',
+                flower2: 'flower2.png', house1: 'house1.png', house2: 'house2.png', house3: 'house3.png', light1: 'light1.png', light2: 'light2.png', rain1: 'rain1.png', road1: 'road1.png',
+                road2: 'road2.png', road3: 'road3.png', star1: 'star1.png', star2: 'star2.png',
+            };
+
+            const stampImages = {}; let imagesReady = 0, imagesTotal = 0;
+            function loadImages(cb) {
+                const types = Object.keys(IMG_FILES); imagesTotal = types.length; if (imagesTotal === 0) { cb(); return; }
+                types.forEach(type => { const img = new Image(); img.onload = () => { stampImages[type] = img; imagesReady++; if (imagesReady >= imagesTotal) cb(); }; img.onerror = () => { imagesReady++; if (imagesReady >= imagesTotal) cb(); }; img.src = IMG_FILES[type]; });
+            }
+
+            function stone(c) { const g = c.createRadialGradient(-9, -8, 1, 0, 2, 28); g.addColorStop(0, '#e0e0e0'); g.addColorStop(0.5, '#a0a0a0'); g.addColorStop(1, '#606060'); c.beginPath(); c.ellipse(0, 3, 27, 20, -0.1, 0, Math.PI*2); c.fillStyle = g; c.fill(); c.strokeStyle = '#707070'; c.lineWidth = 1.5; c.stroke(); c.beginPath(); c.ellipse(-8, -4, 7, 4, -0.5, 0, Math.PI*2); c.fillStyle = 'rgba(255,255,255,.3)'; c.fill(); }
+            function grass(c) { c.beginPath(); c.ellipse(0, 12, 26, 13, 0, 0, Math.PI*2); c.fillStyle = '#b8923a'; c.fill(); c.strokeStyle = '#9a7828'; c.lineWidth = 1; c.stroke(); c.lineCap = 'round'; [[-19,14,-22,-8,-26,-20], [-11,13,-12,-5,-14,-22], [-3,12,-2,-6,-5,-24], [5,12,7,-4,4,-22], [13,13,16,-6,14,-20], [20,14,24,-4,22,-16]].forEach(([x1,y1,cx,cy,x2,y2], i) => { c.strokeStyle = i%2===0 ? '#62a020' : '#4e8818'; c.lineWidth = 2.2; c.beginPath(); c.moveTo(x1,y1); c.quadraticCurveTo(cx,cy,x2,y2); c.stroke(); }); }
+            function flower(c) { const np=6, dist=13, rx=10, ry=6; for (let i=0;i<np;i++) { const a=(i/np)*Math.PI*2; c.beginPath(); c.ellipse(Math.cos(a)*dist+1,Math.sin(a)*dist+1,rx,ry,a,0,Math.PI*2); c.fillStyle='rgba(0,0,0,.06)'; c.fill(); } for (let i=0;i<np;i++) { const a=(i/np)*Math.PI*2; c.beginPath(); c.ellipse(Math.cos(a)*dist,Math.sin(a)*dist,rx,ry,a,0,Math.PI*2); c.fillStyle=i%2?'#f9b4c0':'#f07090'; c.fill(); c.strokeStyle='#d05068'; c.lineWidth=0.6; c.stroke(); } const cg=c.createRadialGradient(-2,-2,0,0,0,9); cg.addColorStop(0,'#fffde0'); cg.addColorStop(0.5,'#fdd835'); cg.addColorStop(1,'#f57f17'); c.beginPath(); c.arc(0,0,9,0,Math.PI*2); c.fillStyle=cg; c.fill(); c.strokeStyle='#bf360c'; c.lineWidth=1; c.stroke(); c.fillStyle='rgba(0,0,0,.15)'; for (let i=0;i<5;i++) { const a=(i/5)*Math.PI*2; c.beginPath(); c.arc(Math.cos(a)*4.5,Math.sin(a)*4.5,1.2,0,Math.PI*2); c.fill(); } }
+            function branch(c) { c.lineCap='round'; c.lineJoin='round'; c.strokeStyle='#6b3f22'; c.lineWidth=4; c.beginPath(); c.moveTo(-27,20); c.quadraticCurveTo(-4,8,10,-4); c.quadraticCurveTo(20,-15,27,-21); c.stroke(); c.lineWidth=2; [[[-14,12],[-24,-12]],[[6,-2],[14,-22]],[[20,-14],[28,4]]].forEach(([p,q])=>{ c.beginPath(); c.moveTo(...p); c.lineTo(...q); c.stroke(); }); function leaf(lx,ly,angle,len=8,wid=4.5){ c.save(); c.translate(lx,ly); c.rotate(angle); const g=c.createLinearGradient(-len,0,len,0); g.addColorStop(0,'#3d7a18'); g.addColorStop(0.5,'#5faa28'); g.addColorStop(1,'#3d7a18'); c.beginPath(); c.ellipse(0,0,len,wid,0,0,Math.PI*2); c.fillStyle=g; c.fill(); c.strokeStyle='#2e5c10'; c.lineWidth=0.8; c.beginPath(); c.moveTo(-len,0); c.lineTo(len,0); c.stroke(); c.restore(); } leaf(-24,-12,-1.1); leaf(14,-22,-0.5); leaf(28,4,0.4); leaf(-16,-2,-1.4,5.5,3.2); leaf(22,-9,0.8,5.5,3.2); }
+            function sun(c) { c.strokeStyle='#f5a800'; c.lineWidth=3; c.lineCap='round'; for (let i=0; i<8; i++) { const a=(i/8)*Math.PI*2; c.beginPath(); c.moveTo(Math.cos(a)*16,Math.sin(a)*16); c.lineTo(Math.cos(a)*26,Math.sin(a)*26); c.stroke(); } const g = c.createRadialGradient(-4,-4,1,0,0,13); g.addColorStop(0,'#fff176'); g.addColorStop(1,'#fdd835'); c.beginPath(); c.arc(0,0,13,0,Math.PI * 2); c.fillStyle=g; c.fill(); c.strokeStyle='#f5a800'; c.lineWidth=1.5; c.stroke(); }
+            function bird(c) { c.strokeStyle='#6b3f22'; c.lineWidth=2.5; c.lineCap='round'; c.beginPath(); c.moveTo(0,0); c.quadraticCurveTo(-14,-12,-24,-4); c.stroke(); c.beginPath(); c.moveTo(0,0); c.quadraticCurveTo(14,-12,24,-4); c.stroke(); c.beginPath(); c.arc(0,2,2.5,0,Math.PI * 2); c.fillStyle='#6b3f22'; c.fill(); }
+            function sakura(c) { const np=5; for(let i=0;i<np;i++){ const a=(i/np)*Math.PI*2-Math.PI/2; c.save(); c.translate(Math.cos(a)*11,Math.sin(a)*11); c.rotate(a); c.beginPath(); c.ellipse(0,0,10,6,0,0,Math.PI*2); c.fillStyle=i%2?'#f8c8d4':'#f48fb1'; c.fill(); c.strokeStyle='#e91e8c'; c.lineWidth=0.5; c.stroke(); c.restore(); } c.beginPath(); c.arc(0,0,5,0,Math.PI*2); c.fillStyle='#fce4ec'; c.fill(); c.strokeStyle='#f48fb1'; c.lineWidth=1; c.stroke(); }
+            function cloud(c) { c.fillStyle='#f0f4ff'; c.strokeStyle='#c8d8f0'; c.lineWidth=1.5; [[0,4,18],[-14,8,13],[14,8,13],[-7,-2,14],[7,-2,14]].forEach(([cx,cy,r])=>{ c.beginPath(); c.arc(cx,cy,r,0,Math.PI*2); c.fill(); c.stroke(); }); }
+            function leaf(c) { const g=c.createLinearGradient(-14,-20,10,18); g.addColorStop(0,'#66bb6a'); g.addColorStop(1,'#2e7d32'); c.beginPath(); c.moveTo(0,-22); c.bezierCurveTo(18,-10,18,10,0,22); c.bezierCurveTo(-18,10,-18,-10,0,-22); c.fillStyle=g; c.fill(); c.strokeStyle='#1b5e20'; c.lineWidth=1; c.stroke(); c.strokeStyle='#1b5e20'; c.lineWidth=1.2; c.lineCap='round'; c.beginPath(); c.moveTo(0,-20); c.lineTo(0,20); c.stroke(); [[-8,-8],[8,-6],[-8,4],[8,6]].forEach(([vx,vy])=>{ c.beginPath(); c.moveTo(0,vy); c.lineTo(vx,vy-6); c.stroke(); }); }
+            function trunk(c) { const g=c.createLinearGradient(-8,0,8,0); g.addColorStop(0,'#8d6e63'); g.addColorStop(0.5,'#6d4c41'); g.addColorStop(1,'#8d6e63'); c.beginPath(); c.roundRect(-7,-26,14,52,4); c.fillStyle=g; c.fill(); c.strokeStyle='#4e342e'; c.lineWidth=1; c.stroke(); c.strokeStyle='rgba(0,0,0,.1)'; c.lineWidth=1; [-14,-5,6,16].forEach(y=>{ c.beginPath(); c.moveTo(-6,y); c.lineTo(6,y+3); c.stroke(); }); }
+            function maple(c) { c.fillStyle='#e53935'; c.strokeStyle='#b71c1c'; c.lineWidth=1; c.beginPath(); const lobes=[[0,-26],[12,-14],[24,-10],[18,2],[10,18],[0,14],[-10,18],[-18,2],[-24,-10],[-12,-14]]; c.moveTo(lobes[0][0],lobes[0][1]); for(let i=1;i<lobes.length;i++){ const p=lobes[i-1],cur=lobes[i]; c.quadraticCurveTo(p[0],p[1],(p[0]+cur[0])/2,(p[1]+cur[1])/2); } c.quadraticCurveTo(lobes[9][0],lobes[9][1],lobes[0][0],lobes[0][1]); c.fill(); c.stroke(); c.strokeStyle='#b71c1c'; c.lineWidth=2; c.lineCap='round'; c.beginPath(); c.moveTo(0,14); c.lineTo(0,26); c.stroke(); }
+            function sunflower(c) { for(let i=0;i<12;i++){ const a=(i/12)*Math.PI*2; c.save(); c.translate(Math.cos(a)*18,Math.sin(a)*18); c.rotate(a); c.beginPath(); c.ellipse(0,0,7,4,0,0,Math.PI*2); c.fillStyle='#fdd835'; c.fill(); c.strokeStyle='#f9a825'; c.lineWidth=0.5; c.stroke(); c.restore(); } const g=c.createRadialGradient(-2,-2,1,0,0,11); g.addColorStop(0,'#795548'); g.addColorStop(1,'#4e342e'); c.beginPath(); c.arc(0,0,11,0,Math.PI*2); c.fillStyle=g; c.fill(); c.strokeStyle='#3e2723'; c.lineWidth=1; c.stroke(); }
+            function lilyofvalley(c) { c.strokeStyle='#388e3c'; c.lineWidth=2; c.lineCap='round'; c.beginPath(); c.moveTo(0,24); c.quadraticCurveTo(0,0,-4,-20); c.stroke(); [[-4,-20],[-2,-6],[2,8]].forEach(([bx,by])=>{ c.beginPath(); c.arc(bx+1,by+1,9,0,Math.PI*2); c.fillStyle='rgba(0,0,0,.06)'; c.fill(); c.beginPath(); c.moveTo(bx-8,by); c.quadraticCurveTo(bx-9,by+14,bx,by+16); c.quadraticCurveTo(bx+9,by+14,bx+8,by); c.arc(bx,by,8,0,Math.PI,true); c.closePath(); c.fillStyle='#f1f8e9'; c.fill(); c.strokeStyle='#aed581'; c.lineWidth=1.2; c.stroke(); }); [1,-1].forEach(side=>{ c.save(); c.translate(side*4,20); c.rotate(side*0.4); const lg=c.createLinearGradient(-10,0,10,0); lg.addColorStop(0,'#43a047'); lg.addColorStop(1,'#1b5e20'); c.beginPath(); c.ellipse(0,-8,10,18,0,0,Math.PI*2); c.fillStyle=lg; c.fill(); c.restore(); }); }
+
+            function stampSize(type) { return { w: 60, h: 60 }; }
+            function drawShape(c, type, renderScale, tintColor) {
+                const scale = (typeof renderScale === 'number') ? renderScale : 1; const img = stampImages[type];
+                if (img) {
+                    let dw, dh; const KEEP_RATIO = new Set(['cloud','bird','chair1','chair2','flower1','flower2','house1','house2','house3','light1','light2','rain1','road1','road2','road3','star1','star2']);
+                    if (KEEP_RATIO.has(type)) { const boxSz = 60 * scale; const ratio = img.naturalWidth / img.naturalHeight; if (ratio >= 1) { dw = boxSz; dh = boxSz / ratio; } else { dh = boxSz; dw = boxSz * ratio; } } else { dw = dh = 60 * scale; }
+                    c.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+                    if (tintColor) { c.save(); c.globalCompositeOperation = 'source-atop'; c.globalAlpha = 0.55; c.fillStyle = tintColor; c.fillRect(-dw / 2, -dh / 2, dw, dh); c.restore(); }
+                    return;
+                }
+                const { w: bw, h: bh } = stampSize(type); const sw = bw * scale, sh = bh * scale; const gs = Math.min(sw, sh) / 60;
+                c.save(); c.scale(gs, gs);
+                if (type==='stone') stone(c); if (type==='grass') grass(c); if (type==='flower') flower(c); if (type==='branch') branch(c); if (type==='sun') sun(c); if (type==='bird') bird(c); if (type==='sakura') sakura(c); if (type==='cloud') cloud(c); if (type==='leaf') leaf(c); if (type==='trunk') trunk(c); if (type==='maple') maple(c); if (type==='sunflower') sunflower(c); if (type==='lilyofvalley') lilyofvalley(c);
+                c.restore();
+            }
+
+            function render() {
+                ctx.clearRect(0, 0, W, H); ctx.fillStyle = '#faf6ec'; ctx.fillRect(0, 0, W, H);
+                stamps.forEach(s => {
+                    ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.rot);
+                    ctx.save(); ctx.shadowColor='rgba(0,0,0,.22)'; ctx.shadowBlur=8; ctx.shadowOffsetX=2; ctx.shadowOffsetY=3;
+                    drawShape(ctx, s.type, s.scale || 1, s.color); ctx.restore(); drawShape(ctx, s.type, s.scale || 1, s.color); ctx.restore();
+                });
+                if (placingType !== null) {
+                    ctx.save(); ctx.globalAlpha = 0.5; ctx.translate(ghostX, ghostY);
+                    ctx.shadowColor = 'rgba(0,0,0,.18)'; ctx.shadowBlur = 6; ctx.shadowOffsetX = 1; ctx.shadowOffsetY = 2; drawShape(ctx, placingType, placingScale); ctx.restore();
+                }
+            }
+
+            function drawPreviews() {
+                ['stone','grass','flower','branch','sun','bird','sakura','cloud','leaf','trunk','maple','sunflower','lilyofvalley','chair1','chair2','flower1','flower2','house1','house2','house3','light1','light2','rain1','road1','road2','road3','star1','star2'].forEach(type => {
+                    const pc = document.getElementById(`pv-${type}`); if (!pc) return;
+                    const pctx = pc.getContext('2d'); const pvSize = 72; const pvCenter = pvSize / 2;
+                    pctx.clearRect(0, 0, pvSize, pvSize); pctx.save(); pctx.translate(pvCenter, pvCenter);
+                    const targetPx = 62; const { h: bh } = stampSize(type); const previewScale = targetPx / bh; drawShape(pctx, type, previewScale); pctx.restore();
+                });
+            }
+
+            const snap = () => JSON.stringify(stamps.map(s => ({...s})));
+            function pushHistory(state) { history = history.slice(0, histIdx+1); history.push(state); histIdx = history.length - 1; refreshBtns(); }
+            function saveHistory() { pushHistory(snap()); }
+            function applyState(state) { stamps = JSON.parse(state); selectedId = null; render(); refreshBtns(); }
+            function undo() { if (histIdx > 0) applyState(history[--histIdx]); }
+            function redo() { if (histIdx < history.length-1) applyState(history[++histIdx]); }
+            function refreshBtns() { document.getElementById('btn-undo').disabled = histIdx <= 0; document.getElementById('btn-redo').disabled = histIdx >= history.length-1; }
+
+            function enterPlacing(type) {
+                placingType = type; placingScale = 1; selectedId = null;
+                document.querySelectorAll('.stamp-btn').forEach(b => b.classList.remove('placing'));
+                document.getElementById(`add-${type}`).classList.add('placing'); document.getElementById('btn-cancel-place').style.display = 'block';
+                canvas.classList.add('placing'); render(); document.dispatchEvent(new CustomEvent('placing-changed', { detail: { type } }));
+            }
+
+            function exitPlacing() {
+                placingType = null; ghostX = -200; ghostY = -200;
+                document.querySelectorAll('.stamp-btn').forEach(b => b.classList.remove('placing')); document.getElementById('btn-cancel-place').style.display = 'none';
+                canvas.classList.remove('placing'); canvas.style.cursor = 'default'; render(); document.dispatchEvent(new CustomEvent('placing-changed', { detail: { type: null } }));
+            }
+            
+            document.addEventListener('reset-canvas-state', () => {
+                if (typeof exitPlacing === 'function' && placingType !== null) exitPlacing();
+                dragging = false; dragMoved = false; selectedId = null; render();
+            });
+
+            function placeAt(x, y) {
+                const type = placingType; const scale = placingScale; exitPlacing();
+                const s = { id: nextId++, type, x, y, rot: 0, scale }; stamps.push(s); selectedId = s.id;
+                saveHistory(); render(); document.dispatchEvent(new CustomEvent('stamp-placed', { detail: { type } }));
+            }
+
+            function delSelected() { if (selectedId == null) return; stamps = stamps.filter(s => s.id !== selectedId); selectedId = null; saveHistory(); render(); }
+            function deselect() { selectedId = null; render(); }
+
+            // ==========================================
+            // 解析分享链接参数 (放在 canvas 初始化后)
+            // ==========================================
+            const urlParamsParsed = new URLSearchParams(window.location.search);
+            if (urlParamsParsed.has('share')) {
+                try {
+                    const decoded = LZString.decompressFromEncodedURIComponent(urlParamsParsed.get('share'));
+                    const parsed = JSON.parse(decoded);
+                    if (Array.isArray(parsed)) {
+                        stamps = parsed.map(s => ({
+                            id: nextId++,
+                            type: s.t,
+                            x: s.x,
+                            y: s.y,
+                            rot: s.r,
+                            scale: s.s
+                        }));
+                        isSharedDataLoaded = true;
+                    }
+                } catch(e) {
+                    console.error(e);
+                    alert('画布数据读取失败，请重新扫码。');
+                }
+            }
+            
+            const saveModal = document.getElementById('save-modal');
+            const previewCanvas = document.getElementById('save-preview-canvas'); 
+            const btnCloseSave = document.getElementById('btn-close-save');
+            const btnActualDl = document.getElementById('btn-actual-dl');
+            let currentCanvasDataUrl = '';
+            let autoResetTimer = null; 
+
+            function downloadPNG() {
+                const prev = selectedId; selectedId = null; render();
+                
+                if (previewCanvas) {
+                    previewCanvas.width = canvas.width;
+                    previewCanvas.height = canvas.height;
+                    const pctx = previewCanvas.getContext('2d');
+                    pctx.drawImage(canvas, 0, 0);
+                }
+
+                try {
+                    originalCanvasDataUrl = canvas.toDataURL('image/png'); 
+                } catch(e) {
+                    console.warn("本地防拦截保护生效，可能无法保存图片，但已生成正确预览。");
+                }
+
+                const minStamps = stamps.map(s => ({
+                    t: s.type, 
+                    x: Math.round(s.x), 
+                    y: Math.round(s.y), 
+                    r: Number(s.rot.toFixed(2)), 
+                    s: Number((s.scale || 1).toFixed(2))
+                }));
+                const compressedData = LZString.compressToEncodedURIComponent(JSON.stringify(minStamps));
+                const baseUrl = window.location.origin + window.location.pathname;
+                globalShareUrl = baseUrl + '?share=' + compressedData;
+
+                if (!isSharedViewGlobal) {
+                    currentExportMode = 'canvas';
+                    const tabCanvasBtn = document.getElementById('tab-canvas');
+                    const tabBookmarkBtn = document.getElementById('tab-bookmark');
+                    if (tabCanvasBtn) tabCanvasBtn.classList.add('active');
+                    if (tabBookmarkBtn) tabBookmarkBtn.classList.remove('active');
+                    const monthSelWrap = document.getElementById('month-selector-wrap');
+                    if (monthSelWrap) monthSelWrap.style.display = 'none';
+                    
+                    const tabsContainer = document.querySelector('.save-tabs');
+                    if (tabsContainer) tabsContainer.style.display = 'flex';
+                } else {
+                    const exp = urlParamsParsed.get('export');
+                    if (exp === 'bookmark') {
+                        currentExportMode = 'bookmark';
+                    } else {
+                        currentExportMode = 'canvas';
+                    }
+                    
+                    // 隐藏保存弹窗里的 tab 栏
+                    const tabsContainer = document.querySelector('.save-tabs');
+                    if (tabsContainer) tabsContainer.style.display = 'none';
+                    const monthSelWrap = document.getElementById('month-selector-wrap');
+                    if (monthSelWrap) monthSelWrap.style.display = 'none';
+                }
+
+                if (typeof window.updatePreviewDisplay === 'function') {
+                    window.updatePreviewDisplay(); 
+                }
+
+                const modalTitle = document.getElementById('save-modal-title');
+                const modalDesc = document.getElementById('save-modal-desc');
+                if (isSharedViewGlobal) {
+                    if (modalTitle) modalTitle.innerText = "扫码在手机上打开当前画布";
+                    if (modalDesc) modalDesc.innerHTML = "手机端打开后，可保存或分享这张画布";
+                } else {
+                    if (modalTitle) modalTitle.innerText = "分享画布";
+                    if (modalDesc) modalDesc.innerHTML = "扫码邀请好友一起共绘<br><span style=\"font-size: 11px; color: #A9BE8D;\">(保存画作请点击下方按钮)</span>";
+                }
+
+                saveModal.classList.add('active'); 
+                selectedId = prev; render();
+
+                clearTimeout(autoResetTimer);
+                if (!isSharedViewGlobal) {
+                    autoResetTimer = setTimeout(() => {
+                        if (saveModal.classList.contains('active')) {
+                            saveModal.classList.remove('active');
+                            if (window.resetToStart) window.resetToStart();
+                        }
+                    }, 60000); 
+                }
+            }
+
+            btnCloseSave.addEventListener('click', () => { 
+                clearTimeout(autoResetTimer);
+                saveModal.classList.remove('active'); 
+                if (window.resetToStart) window.resetToStart();
+            });
+            saveModal.addEventListener('click', (e) => { if (e.target === saveModal) { clearTimeout(autoResetTimer); saveModal.classList.remove('active'); } });
+
+            btnActualDl.addEventListener('click', () => {
+                clearTimeout(autoResetTimer);
+                const day = (typeof window._getCurrentDay === 'function') ? window._getCurrentDay() : 1;
+                
+                let targetDataUrl = originalCanvasDataUrl;
+                let filename = `community-canvas-day${day}.png`;
+
+                if (currentExportMode === 'bookmark') {
+                    targetDataUrl = bookmarkDataUrl;
+                    filename = `community-bookmark-day${day}.png`;
+                    if (isSharedViewGlobal) {
+                        filename = `community-bookmark-m${selectedBookmarkMonth}.png`;
+                    }
+                }
+
+                if (targetDataUrl) {
+                    Object.assign(document.createElement('a'), { download: filename, href: targetDataUrl }).click();
+                } else {
+                    alert("⚠️ 图片数据未准备好或浏览器拦截了截图！");
+                }
+                
+                setTimeout(() => {
+                    saveModal.classList.remove('active');
+                    if (!isSharedViewGlobal && window.resetToStart) window.resetToStart();
+                }, 500);
+            });
+
+            function hitTest(x, y) {
+                for (let i = stamps.length-1; i >= 0; i--) {
+                    const s = stamps[i]; const { w, h } = stampSize(s.type); const scale = s.scale || 1;
+                    const hw = (w * scale) / 2, hh = (h * scale) / 2; const dx = x-s.x, dy = y-s.y;
+                    const cos = Math.cos(-s.rot), sin = Math.sin(-s.rot); const lx = dx*cos - dy*sin; const ly = dx*sin + dy*cos;
+                    if (Math.abs(lx) <= hw && Math.abs(ly) <= hh) return s;
+                }
+                return null;
+            }
+
+            function pos(e) { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+
+            canvas.addEventListener('mousedown', e => {
+                const [x, y] = pos(e); if (placingType !== null) { placeAt(x, y); return; }
+                const hit = hitTest(x, y); if (hit) { selectedId = hit.id; dragging = true; dragMoved = false; dragDX = x - hit.x; dragDY = y - hit.y; canvas.style.cursor = 'grabbing'; } else { selectedId = null; } render();
+            });
+
+            canvas.addEventListener('mousemove', e => {
+                const [x, y] = pos(e); if (placingType !== null) { ghostX = x; ghostY = y; render(); return; }
+                if (!dragging) { canvas.style.cursor = hitTest(x, y) ? 'grab' : 'default'; return; }
+                if (selectedId == null) return; const s = stamps.find(s => s.id === selectedId); if (s) { s.x = x - dragDX; s.y = y - dragDY; dragMoved = true; render(); }
+            });
+
+            canvas.addEventListener('mouseleave', () => { if (placingType !== null) { ghostX = -200; ghostY = -200; render(); return; } if (dragging && dragMoved) saveHistory(); dragging = false; dragMoved = false; canvas.style.cursor = 'default'; });
+            canvas.addEventListener('mouseup', () => { if (placingType !== null) return; if (dragging && dragMoved) saveHistory(); dragging = false; dragMoved = false; canvas.style.cursor = 'default'; });
+            canvas.addEventListener('wheel', e => {
+                e.preventDefault(); if (placingType !== null) { const delta = e.deltaY > 0 ? -0.08 : 0.08; placingScale = Math.max(0.5, Math.min(2.5, placingScale + delta)); render(); return; }
+                const [x, y] = pos(e); let t = selectedId != null ? stamps.find(s => s.id === selectedId) : null;
+                if (!t) t = hitTest(x, y); if (!t) return; selectedId = t.id; t.rot += e.deltaY > 0 ? 0.1 : -0.1; saveHistory(); render();
+            }, { passive: false });
+
+            document.addEventListener('keydown', e => {
+                const mod = e.ctrlKey || e.metaKey; if (e.key === 'Escape') { if (placingType !== null) exitPlacing(); else deselect(); return; }
+                if (placingType !== null) return; if (mod && !e.shiftKey && e.key==='z') { e.preventDefault(); undo(); } else if (mod && e.shiftKey && e.key==='z') { e.preventDefault(); redo(); } else if (mod && e.key==='y') { e.preventDefault(); redo(); } else if ((e.key==='Delete'||e.key==='Backspace') && !e.target.closest('input,textarea')) { delSelected(); }
+            });
+
+            const $ = id => document.getElementById(id);
+            ['stone','grass','flower','branch','sun','bird','sakura','cloud','leaf','trunk','maple','sunflower','lilyofvalley','chair1','chair2','flower1','flower2','house1','house2','house3','light1','light2','rain1','road1','road2','road3','star1','star2'].forEach(t => {
+                const btn = $(`add-${t}`); if(btn) btn.onclick = () => enterPlacing(t);
+            });
+            $('btn-cancel-place').onclick = exitPlacing; $('btn-undo').onclick = undo; $('btn-redo').onclick = redo; $('btn-del').onclick = delSelected; 
+            $('btn-dl').onclick = downloadPNG; $('btn-desel').onclick = deselect;
+
+            // 首次渲染
+            saveHistory(); 
+            refreshBtns(); 
+            loadImages(() => { 
+                render(); 
+                drawPreviews(); 
+
+                // -- 分享模式：如果在手机端直接呈现对应的预览图 --
+                if (isSharedDataLoaded) {
+                    const exp = urlParamsParsed.get('export');
+                    if (exp === 'bookmark') {
+                        selectedBookmarkMonth = parseInt(urlParamsParsed.get('month')) || 1;
+                        if (typeof window.createBookmarkImage === 'function') {
+                            window.createBookmarkImage(selectedBookmarkMonth, (dataUrl) => {
+                                if(dataUrl) {
+                                    const mBookmark = document.getElementById('mobile-bookmark-preview');
+                                    if (mBookmark) {
+                                        mBookmark.src = dataUrl;
+                                        mBookmark.style.display = 'block';
+                                        document.getElementById('canvas').style.display = 'none';
+                                        bookmarkDataUrl = dataUrl;
+                                    }
+                                }
+                            });
+                        }
+                    } else {
+                        try {
+                            originalCanvasDataUrl = canvas.toDataURL('image/png');
+                        } catch(e){}
+                    }
+                }
+            });
+        })();
+
+        (() => {
+            const tabs = document.querySelectorAll('.panel-tab'); const btns = document.querySelectorAll('#stamp-grid .stamp-btn');
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    tabs.forEach(t => t.classList.remove('active')); tab.classList.add('active'); const cat = tab.dataset.cat;
+                    btns.forEach(btn => { if (cat === 'all' || btn.dataset.cat === cat) { btn.style.display = ''; } else { btn.style.display = 'none'; } });
+                });
+            });
+        })();
+
+        (() => {
+            const PHASES = [{ start: 1, end: 3, name: '种子', key: 'seed' }, { start: 4, end: 6, name: '扎根', key: 'root' }, { start: 7, end: 10, name: '萌芽', key: 'sprout' }, { start: 11, end: 14, name: '展叶', key: 'leaf' }, { start: 15, end: 19, name: '花朵绽放', key: 'bloom' }, { start: 20, end: 24, name: '果实成熟', key: 'fruit' }, { start: 25, end: 30, name: '叶落归根', key: 'fall' }];
+            const ICONS = {
+                seed: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><ellipse cx="12" cy="15" rx="5" ry="4" fill="#C9B79C" stroke="#A89070" stroke-width="1"/><ellipse cx="12" cy="14.5" rx="3" ry="2.5" fill="#B7A080"/><line x1="12" y1="11" x2="12" y2="8" stroke="#A89070" stroke-width="1" stroke-linecap="round"/></svg>`,
+                root: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><ellipse cx="12" cy="10" rx="4" ry="3" fill="#C9B79C" stroke="#A89070" stroke-width="1"/><path d="M12 13 Q10 17 8 19" stroke="#A89070" stroke-width="1.2" stroke-linecap="round" fill="none"/><path d="M12 13 Q14 17 16 19" stroke="#A89070" stroke-width="1.2" stroke-linecap="round" fill="none"/><path d="M12 14 Q12 18 12 20" stroke="#A89070" stroke-width="1.2" stroke-linecap="round" fill="none"/></svg>`,
+                sprout: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><line x1="12" y1="20" x2="12" y2="10" stroke="#7C9363" stroke-width="1.5" stroke-linecap="round"/><ellipse cx="9.5" cy="12" rx="3.5" ry="2" transform="rotate(-30 9.5 12)" fill="#BFD59B" stroke="#7C9363" stroke-width="0.8"/><ellipse cx="14.5" cy="12" rx="3.5" ry="2" transform="rotate(30 14.5 12)" fill="#BFD59B" stroke="#7C9363" stroke-width="0.8"/></svg>`,
+                leaf: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><line x1="12" y1="21" x2="12" y2="9" stroke="#7C9363" stroke-width="1.5" stroke-linecap="round"/><ellipse cx="8" cy="11" rx="5" ry="2.5" transform="rotate(-40 8 11)" fill="#A9BE8D" stroke="#7C9363" stroke-width="0.8"/><ellipse cx="16" cy="11" rx="5" ry="2.5" transform="rotate(40 16 11)" fill="#A9BE8D" stroke="#7C9363" stroke-width="0.8"/><ellipse cx="12" cy="9" rx="3.5" ry="2" fill="#BFD59B" stroke="#7C9363" stroke-width="0.8"/></svg>`,
+                bloom: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><line x1="12" y1="22" x2="12" y2="14" stroke="#7C9363" stroke-width="1.5" stroke-linecap="round"/><ellipse cx="8" cy="15" rx="4" ry="2" transform="rotate(-40 8 15)" fill="#A9BE8D" stroke="#7C9363" stroke-width="0.7"/><ellipse cx="16" cy="15" rx="4" ry="2" transform="rotate(40 16 15)" fill="#A9BE8D" stroke="#7C9363" stroke-width="0.7"/><circle cx="12" cy="9" r="4.5" fill="#E8C7C7" stroke="#C9A0A0" stroke-width="0.8"/><circle cx="12" cy="9" r="2" fill="#E7D38F"/><circle cx="10" cy="5.5" r="2.5" fill="#F0D0D0" stroke="#C9A0A0" stroke-width="0.7"/><circle cx="14" cy="5.5" r="2.5" fill="#F0D0D0" stroke="#C9A0A0" stroke-width="0.7"/><circle cx="8.5" cy="8" r="2.5" fill="#F0D0D0" stroke="#C9A0A0" stroke-width="0.7"/><circle cx="15.5" cy="8" r="2.5" fill="#F0D0D0" stroke="#C9A0A0" stroke-width="0.7"/></svg>`,
+                fruit: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><line x1="12" y1="22" x2="12" y2="13" stroke="#7C9363" stroke-width="1.5" stroke-linecap="round"/><ellipse cx="8.5" cy="15" rx="3.5" ry="2" transform="rotate(-35 8.5 15)" fill="#A9BE8D" stroke="#7C9363" stroke-width="0.7"/><ellipse cx="15.5" cy="15" rx="3.5" ry="2" transform="rotate(35 15.5 15)" fill="#A9BE8D" stroke="#7C9363" stroke-width="0.7"/><circle cx="10" cy="9" r="3.5" fill="#B7B08A" stroke="#9A9070" stroke-width="0.8"/><circle cx="14.5" cy="10" r="3" fill="#C4BC96" stroke="#9A9070" stroke-width="0.8"/><path d="M10 5.5 Q10 4 11 3.5" stroke="#7C9363" stroke-width="1" stroke-linecap="round" fill="none"/></svg>`,
+                fall: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><line x1="12" y1="20" x2="12" y2="10" stroke="#A89070" stroke-width="1.5" stroke-linecap="round"/><ellipse cx="8" cy="12" rx="4" ry="2" transform="rotate(-30 8 12)" fill="#C9B79C" stroke="#A89070" stroke-width="0.7" opacity="0.7"/><ellipse cx="16" cy="13" rx="3.5" ry="1.8" transform="rotate(25 16 13)" fill="#B7B08A" stroke="#9A9070" stroke-width="0.7" opacity="0.6"/><ellipse cx="7" cy="18" rx="3" ry="1.5" transform="rotate(-15 7 18)" fill="#C9B79C" stroke="#A89070" stroke-width="0.7" opacity="0.5"/><ellipse cx="17" cy="17" rx="2.5" ry="1.3" transform="rotate(20 17 17)" fill="#B7B08A" stroke="#9A9070" stroke-width="0.7" opacity="0.45"/><path d="M9 8 Q8 6 10 5" stroke="#A89070" stroke-width="1" stroke-linecap="round" fill="none" opacity="0.6"/></svg>`,
+            };
+            function getPhase(day) { return PHASES.find(p => day >= p.start && day <= p.end) || PHASES[0]; }
+            let currentDay = 1; window._getCurrentDay = () => currentDay;
+            function buildTimeline() {
+                const track = document.getElementById('timeline-track'); track.innerHTML = ''; const phaseFirstDays = new Set(PHASES.map(p => p.start));
+                for (let d = 1; d <= 30; d++) {
+                    const phase = getPhase(d), isCurrent = d === currentDay, isDone = d < currentDay, isFuture = d > currentDay;
+                    const node = document.createElement('div'); node.className = 'tl-node' + (isCurrent ? ' current' : isDone ? ' done' : ' future'); node.dataset.day = d;
+                    const iconDiv = document.createElement('div'); iconDiv.className = 'tl-icon'; iconDiv.innerHTML = ICONS[phase.key];
+                    const sz = isCurrent ? 28 : 20; iconDiv.querySelector('svg').style.cssText = `width:${sz}px;height:${sz}px;`;
+                    const numDiv = document.createElement('div'); numDiv.className = 'tl-num'; numDiv.textContent = d; node.appendChild(iconDiv); node.appendChild(numDiv);
+                    if (phaseFirstDays.has(d)) { const label = document.createElement('div'); label.className = 'tl-phase-label'; label.textContent = phase.name; node.appendChild(label); }
+                    node.addEventListener('click', () => { currentDay = d; document.getElementById('day-num-display').textContent = `第${d}天`; const progNum = document.querySelector('#mod-progress .prog-num'); if (progNum) progNum.textContent = d; const progNote = document.querySelector('#mod-progress .prog-note'); if (progNote) progNote.textContent = `已连续参与 ${d} 天`; buildTimeline(); }); track.appendChild(node);
+                }
+            }
+            buildTimeline();
+        })();
+
+        (() => {
+            const STAMP_NAMES = { stone: '石头', grass: '草地', flower: '花朵', branch: '树枝', sun: '太阳', bird: '鸟', sakura: '樱花', cloud: '云朵', leaf: '树叶', trunk: '枝干', maple: '枫叶', sunflower: '向日葵', lilyofvalley: '铃兰', chair1: '椅子1', chair2: '椅子2', flower1: '花朵1', flower2: '花朵2', house1: '房子1', house2: '房子2', house3: '房子3', light1: '路灯1', light2: '路灯2', rain1: '水滴', road1: '小路1', road2: '小路2', road3: '小路3', star1: '星星1', star2: '星星2' };
+            let nickname = '', todayCount = 0;
+            const nickInput = document.getElementById('nick-input'), nickBtn = document.getElementById('nick-btn'), nickMod = document.getElementById('mod-nickname'), stampToday = document.getElementById('btn-stamp-today');
+            nickBtn.addEventListener('click', () => { const val = nickInput.value.trim(); if (!val) { nickInput.focus(); return; } nickname = val; nickMod.classList.add('confirmed'); nickInput.disabled = true; nickBtn.disabled = true; nickBtn.textContent = '已确认'; });
+            nickInput.addEventListener('keydown', e => { if (e.key === 'Enter') nickBtn.click(); }); document.addEventListener('placing-changed', e => { stampToday.disabled = !e.detail.type; });
+            stampToday.addEventListener('click', () => { const canvas = document.getElementById('canvas'); const cx = canvas.width / 2 + (Math.random() - 0.5) * 120; const cy = canvas.height / 2 + (Math.random() - 0.5) * 80; const rect = canvas.getBoundingClientRect(); const scaleX = canvas.width / rect.width; const scaleY = canvas.height / rect.height; canvas.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: rect.left + cx / scaleX, clientY: rect.top + cy / scaleY })); });
+            document.addEventListener('stamp-placed', e => {
+                const type = e.detail.type, stampName = STAMP_NAMES[type] || type; todayCount++;
+                const noteEl = document.querySelector('#mod-progress .prog-note'); if (noteEl) noteEl.textContent = `今日已记录 ${todayCount} 枚`;
+                if (!nickname) return;
+                const list = document.querySelector('#mod-records .record-list'); if (!list) return;
+                const placeholders = list.querySelectorAll('.record-item.placeholder'); placeholders.forEach(p => p.remove());
+                const item = document.createElement('div'); item.className = 'record-item new-entry';
+                item.innerHTML = `<div class="record-avatar">${nickname.charAt(0)}</div><span class="record-text">${nickname} 留下了${stampName} <em>· 刚刚</em></span>`;
+                list.insertBefore(item, list.firstChild); const items = list.querySelectorAll('.record-item'); if (items.length > 3) items[items.length - 1].remove();
+            });
+        })();
+    </script>
+</body>
+</html>
